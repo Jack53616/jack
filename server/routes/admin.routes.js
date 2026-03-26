@@ -114,6 +114,26 @@ router.get("/agents", agentController.getAllAgents);
 router.post("/agent/promote", agentController.promoteToAgent);
 router.post("/agent/revoke", agentController.revokeAgent);
 
+// ===== Official Agent System =====
+router.get("/official-agents", adminController.getOfficialAgents);
+router.post("/official-agents", adminController.createOfficialAgent);
+router.put("/official-agents/:id", adminController.updateOfficialAgent);
+router.put("/official-agents/:id/status", adminController.toggleOfficialAgentStatus);
+router.put("/official-agents/:id/password", adminController.changeOfficialAgentPassword);
+router.post("/official-agents/:id/allocate-wallet", adminController.allocateOfficialAgentBalance);
+router.post("/official-agents/:id/adjust-wallet", adminController.allocateOfficialAgentBalance);
+router.get("/official-agents/:id/wallet-transactions", adminController.getOfficialAgentWalletTransactions);
+
+// ===== Official Agent Reports =====
+router.get("/official-agent-reports", adminController.getOfficialAgentReports);
+router.put("/official-agent-reports/:id/review", adminController.reviewOfficialAgentReport);
+
+// ===== KYC =====
+router.get("/kyc", adminController.getKycRequests);
+router.get("/kyc/:id", adminController.getKycRequestById);
+router.put("/kyc/:id/approve", adminController.approveKycRequest);
+router.put("/kyc/:id/reject", adminController.rejectKycRequest);
+
 // ===== Force Logout =====
 router.post("/force-logout/user", adminController.forceLogoutUser);
 router.post("/force-logout/all", adminController.forceLogoutAll);

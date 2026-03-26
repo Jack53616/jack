@@ -45,6 +45,9 @@
       <button class="tab-btn" data-tab="mass">🎯 صفقات جماعية</button>
       <button class="tab-btn" data-tab="custom">🎨 صفقات مخصصة</button>
       <button class="tab-btn" data-tab="referrals">🔗 الدعوات</button>
+      <button class="tab-btn" data-tab="official-agents">🛡️ الوكلاء الرسمين</button>
+      <button class="tab-btn" data-tab="reports">🚨 البلاغات</button>
+      <button class="tab-btn" data-tab="kyc">🪪 توثيق الهوية</button>
       <button class="tab-btn" data-tab="rewards">🎁 المكافآت</button>
       <button class="tab-btn" data-tab="sessions">🔐 الجلسات</button>
       <button class="tab-btn" data-tab="maint">🔧 الصيانة</button>
@@ -646,6 +649,52 @@
           </div>
           <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">💡 هؤلاء الأعضاء مسجلين بدون إحالة. يمكنك ربطهم تحت أي عضو آخر.</p>
           <div id="unlinkedUsersList" style="max-height:400px;overflow-y:auto;">جاري التحميل...</div>
+        </div>
+      </section>
+
+      <section id="tab-official-agents" class="tab-content">
+        <div class="card glass">
+          <div class="card-header">
+            <h3>🛡️ إنشاء وكيل رسمي</h3>
+          </div>
+          <div class="action-row">
+            <input id="oaUsername" class="input small" placeholder="اسم المستخدم"/>
+            <input id="oaPassword" class="input small" placeholder="كلمة المرور"/>
+            <input id="oaName" class="input small" placeholder="الاسم"/>
+            <input id="oaWalletName" class="input small" placeholder="اسم المحفظة"/>
+            <button id="createOfficialAgentBtn" class="btn success">إنشاء</button>
+          </div>
+          <div class="action-row" style="margin-top:8px;">
+            <input id="oaNotes" class="input" placeholder="ملاحظات (اختياري)"/>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-header">
+            <h3>💼 إدارة محافظ الوكلاء الرسمين</h3>
+            <button id="refreshOfficialAgentsBtn" class="btn-small">🔄 تحديث</button>
+          </div>
+          <div id="officialAgentsTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-reports" class="tab-content">
+        <div class="card glass">
+          <div class="card-header">
+            <h3>🚨 بلاغات الوكلاء الرسمين</h3>
+            <button id="refreshReportsBtn" class="btn-small">🔄 تحديث</button>
+          </div>
+          <div id="officialAgentReportsTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-kyc" class="tab-content">
+        <div class="card glass">
+          <div class="card-header">
+            <h3>🪪 طلبات توثيق الهوية</h3>
+            <button id="refreshKycBtn" class="btn-small">🔄 تحديث</button>
+          </div>
+          <div id="kycRequestsTable" class="table-container"></div>
         </div>
       </section>
 

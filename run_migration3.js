@@ -1,8 +1,11 @@
 import pkg from 'pg';
 const { Pool } = pkg;
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const pool = new Pool({
-  connectionString: "postgresql://jack_is2t_user:xUCymi9CMft6fG1ZpkVaxEyBRXaWZB47@dpg-d4s8o3vpm1nc7390j2l0-a.virginia-postgres.render.com/jack_is2t",
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 

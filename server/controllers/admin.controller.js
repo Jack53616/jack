@@ -1,6 +1,9 @@
 import { query } from "../config/db.js";
 import bot from "../bot/bot.js";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
+import path from "path";
+import { allocateOfficialAgentWallet } from "../services/officialAgentWallet.service.js";
 
 // Dashboard with comprehensive stats (daily resets automatically via SQL date filters)
 export const getDashboard = async (req, res) => {
@@ -1937,6 +1940,268 @@ export const forceLogoutAll = async (req, res) => {
     const count = countResult.rows[0].count;
 
     res.json({ ok: true, message: `تم تسجيل خروج جميع المستخدمين (${count}) من جميع الأجهزة` });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const getOfficialAgents = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT oa.id, oa.username, oa.name, oa.wallet_name, oa.notes, oa.is_active, oa.created_at, oa.last_login_at,
+              COALESCE(w.balance, 0) AS wallet_balance,
+              COALESCE(w.total_allocated, 0) AS total_allocated,
+              COALESCE(w.total_sent, 0) AS total_sent
+       FROM official_agents oa
+       LEFT JOIN official_agent_wallets w ON w.official_agent_id = oa.id
+       ORDER BY oa.created_at DESC`
+    );
+    res.json({ ok: true, agents: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const createOfficialAgent = async (req, res) => {
+  try {
+    const { username, password, name, wallet_name, notes } = req.body;
+    if (!username || !password || !name) {
+      return res.status(400).json({ ok: false, error: "username, password and name are required" });
+    }
+    const exists = await query(`SELECT id FROM official_agents WHERE username = $1`, [username.trim()]);
+    if (exists.rows.length > 0) {
+      return res.status(400).json({ ok: false, error: "Username already exists" });
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    const result = await query(
+      `INSERT INTO official_agents (username, password_hash, name, wallet_name, notes, created_by_admin, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
+       RETURNING id, username, name, wallet_name, notes, is_active, created_at`,
+      [username.trim(), passwordHash, name.trim(), wallet_name?.trim() || 'محفظة الوكيل الرسمي', notes?.trim() || null]
+    );
+    await query(`INSERT INTO official_agent_wallets (official_agent_id) VALUES ($1) ON CONFLICT (official_agent_id) DO NOTHING`, [result.rows[0].id]);
+    res.json({ ok: true, agent: result.rows[0], message: "Official agent created" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const updateOfficialAgent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, wallet_name, notes } = req.body;
+    const result = await query(
+      `UPDATE official_agents SET name = COALESCE($1, name), wallet_name = COALESCE($2, wallet_name), notes = $3, updated_at = NOW()
+       WHERE id = $4
+       RETURNING id, username, name, wallet_name, notes, is_active, created_at, last_login_at`,
+      [name?.trim() || null, wallet_name?.trim() || null, notes?.trim() || null, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Official agent not found" });
+    }
+    res.json({ ok: true, agent: result.rows[0], message: "Official agent updated" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const toggleOfficialAgentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `UPDATE official_agents SET is_active = NOT is_active, updated_at = NOW() WHERE id = $1 RETURNING id, is_active`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Official agent not found" });
+    }
+    res.json({ ok: true, data: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const changeOfficialAgentPassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body;
+    if (!new_password || String(new_password).length < 6) {
+      return res.status(400).json({ ok: false, error: "Password must be at least 6 characters" });
+    }
+    const passwordHash = await bcrypt.hash(String(new_password), 12);
+    const result = await query(
+      `UPDATE official_agents SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id`,
+      [passwordHash, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Official agent not found" });
+    }
+    res.json({ ok: true, message: "Password updated" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const allocateOfficialAgentBalance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, note } = req.body;
+    const amountValue = Number(amount);
+    if (!Number.isFinite(amountValue) || amountValue === 0) {
+      return res.status(400).json({ ok: false, error: "Invalid amount" });
+    }
+    const result = await allocateOfficialAgentWallet({
+      officialAgentId: Number(id),
+      amount: amountValue,
+      note: note || "Admin wallet allocation",
+      relatedAdminId: 1,
+      type: amountValue > 0 ? "allocate" : "adjust"
+    });
+    res.json({ ok: true, message: "Wallet updated", data: result });
+  } catch (error) {
+    res.status(400).json({ ok: false, error: error.message });
+  }
+};
+
+export const getOfficialAgentWalletTransactions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [transactions, transfers] = await Promise.all([
+      query(
+        `SELECT * FROM official_agent_wallet_transactions WHERE official_agent_id = $1 ORDER BY created_at DESC LIMIT 200`,
+        [id]
+      ),
+      query(
+        `SELECT t.*, u.name AS user_name, u.tg_id
+         FROM official_agent_transfers t
+         JOIN users u ON u.id = t.user_id
+         WHERE t.official_agent_id = $1
+         ORDER BY t.created_at DESC LIMIT 200`,
+        [id]
+      )
+    ]);
+    res.json({ ok: true, transactions: transactions.rows, transfers: transfers.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const getOfficialAgentReports = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT r.*, oa.name AS official_agent_name, oa.username AS official_agent_username,
+              u.name AS reported_user_name, u.tg_id AS reported_user_tg_id
+       FROM official_agent_reports r
+       JOIN official_agents oa ON oa.id = r.official_agent_id
+       JOIN users u ON u.id = r.reported_user_id
+       ORDER BY r.created_at DESC`
+    );
+    res.json({ ok: true, reports: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const reviewOfficialAgentReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, admin_note } = req.body;
+    const allowed = ["reviewed", "resolved", "rejected"];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ ok: false, error: "Invalid status" });
+    }
+    const result = await query(
+      `UPDATE official_agent_reports
+       SET status = $1, admin_note = $2, reviewed_at = NOW(), reviewed_by_admin = 1
+       WHERE id = $3
+       RETURNING *`,
+      [status, admin_note || null, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Report not found" });
+    }
+    res.json({ ok: true, report: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const getKycRequests = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT k.id, k.user_id, k.tg_id, k.country_name, k.document_type, k.status, k.rejection_reason, k.submitted_at, k.reviewed_at,
+              u.name AS user_name
+       FROM kyc_verifications k
+       LEFT JOIN users u ON u.id = k.user_id
+       ORDER BY COALESCE(k.submitted_at, k.created_at) DESC`
+    );
+    res.json({ ok: true, requests: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const getKycRequestById = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT k.*, u.name AS user_name
+       FROM kyc_verifications k
+       LEFT JOIN users u ON u.id = k.user_id
+       WHERE k.id = $1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "KYC request not found" });
+    }
+    const row = result.rows[0];
+    res.json({
+      ok: true,
+      request: {
+        ...row,
+        front_image_url: `/api/admin/kyc/${row.id}/image/front`,
+        back_image_url: `/api/admin/kyc/${row.id}/image/back`
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const approveKycRequest = async (req, res) => {
+  try {
+    const result = await query(
+      `UPDATE kyc_verifications
+       SET status = 'approved', rejection_reason = NULL, reviewed_at = NOW(), reviewed_by_admin = 1, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "KYC request not found" });
+    }
+    res.json({ ok: true, request: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const rejectKycRequest = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason || String(reason).trim().length < 3) {
+      return res.status(400).json({ ok: false, error: "Rejection reason is required" });
+    }
+    const result = await query(
+      `UPDATE kyc_verifications
+       SET status = 'rejected', rejection_reason = $1, reviewed_at = NOW(), reviewed_by_admin = 1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [String(reason).trim(), req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "KYC request not found" });
+    }
+    res.json({ ok: true, request: result.rows[0] });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

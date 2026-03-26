@@ -93,6 +93,9 @@ function loadAll() {
   loadTodayScheduled();
   loadExtraTradeUsers();
   loadReferralStats();
+  loadOfficialAgents();
+  loadOfficialAgentReports();
+  loadKycRequests();
 }
 
 // Logout
@@ -1937,8 +1940,237 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.tab === 'rewards') loadRewardStatus();
     if (btn.dataset.tab === 'maint') loadMaintenanceStatus();
+    if (btn.dataset.tab === 'official-agents') loadOfficialAgents();
+    if (btn.dataset.tab === 'reports') loadOfficialAgentReports();
+    if (btn.dataset.tab === 'kyc') loadKycRequests();
   });
 });
+
+async function loadOfficialAgents() {
+  const r = await api('/api/admin/official-agents');
+  const table = $('#officialAgentsTable');
+  if (!table) return;
+  if (!r.ok) {
+    table.innerHTML = `<div class="table-row"><div>❌ ${r.error || 'خطأ في تحميل الوكلاء'}</div></div>`;
+    return;
+  }
+
+  const agents = r.agents || [];
+  table.innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 60px 1fr 120px 120px 120px 120px 150px 220px;">
+      <div>ID</div>
+      <div>الوكيل</div>
+      <div>المحفظة</div>
+      <div>الرصيد</div>
+      <div>المشحون</div>
+      <div>الموزع</div>
+      <div>الحالة</div>
+      <div>إجراءات</div>
+    </div>
+    ${agents.map(a => `
+      <div class="table-row" style="grid-template-columns: 60px 1fr 120px 120px 120px 120px 150px 220px;">
+        <div>${a.id}</div>
+        <div>
+          <strong>${a.name}</strong><br>
+          <small style="color:var(--muted)">@${a.username}</small>
+        </div>
+        <div>${a.wallet_name || '-'}</div>
+        <div style="color:var(--success)">$${Number(a.wallet_balance || 0).toFixed(2)}</div>
+        <div>$${Number(a.total_allocated || 0).toFixed(2)}</div>
+        <div>$${Number(a.total_sent || 0).toFixed(2)}</div>
+        <div>${a.is_active ? '<span style="color:var(--success)">✅ نشط</span>' : '<span style="color:var(--danger)">⛔ معطل</span>'}</div>
+        <div class="table-actions">
+          <button class="mini-btn" onclick="allocateOfficialAgentWallet(${a.id})">💵 شحن</button>
+          <button class="mini-btn view" onclick="toggleOfficialAgent(${a.id})">🔄 تبديل</button>
+          <button class="mini-btn" onclick="changeOfficialAgentPassword(${a.id})">🔐 كلمة مرور</button>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+window.allocateOfficialAgentWallet = async (id) => {
+  const amountText = prompt('أدخل مبلغ الشحن أو التعديل (+ أو -):');
+  if (amountText === null) return;
+  const amount = Number(amountText);
+  if (!amount) return toast('❌ المبلغ غير صحيح');
+  const note = prompt('ملاحظة العملية:', 'Admin wallet update') || 'Admin wallet update';
+  const route = amount > 0 ? `/api/admin/official-agents/${id}/allocate-wallet` : `/api/admin/official-agents/${id}/adjust-wallet`;
+  const r = await api(route, 'POST', { amount, note });
+  if (r.ok) {
+    toast('✅ تم تحديث المحفظة');
+    loadOfficialAgents();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+};
+
+window.toggleOfficialAgent = async (id) => {
+  const r = await api(`/api/admin/official-agents/${id}/status`, 'PUT', {});
+  if (r.ok) {
+    toast('✅ تم تحديث الحالة');
+    loadOfficialAgents();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+};
+
+window.changeOfficialAgentPassword = async (id) => {
+  const newPassword = prompt('أدخل كلمة المرور الجديدة:');
+  if (!newPassword) return;
+  const r = await api(`/api/admin/official-agents/${id}/password`, 'PUT', { new_password: newPassword });
+  if (r.ok) toast('✅ تم تغيير كلمة المرور');
+  else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+$('#createOfficialAgentBtn')?.addEventListener('click', async () => {
+  const username = $('#oaUsername')?.value?.trim();
+  const password = $('#oaPassword')?.value?.trim();
+  const name = $('#oaName')?.value?.trim();
+  const wallet_name = $('#oaWalletName')?.value?.trim();
+  const notes = $('#oaNotes')?.value?.trim();
+  if (!username || !password || !name) return toast('❌ أكمل الحقول المطلوبة');
+
+  const r = await api('/api/admin/official-agents', 'POST', { username, password, name, wallet_name, notes });
+  if (r.ok) {
+    toast('✅ تم إنشاء الوكيل الرسمي');
+    ['oaUsername','oaPassword','oaName','oaWalletName','oaNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    loadOfficialAgents();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+});
+
+$('#refreshOfficialAgentsBtn')?.addEventListener('click', loadOfficialAgents);
+
+async function loadOfficialAgentReports() {
+  const r = await api('/api/admin/official-agent-reports');
+  const table = $('#officialAgentReportsTable');
+  if (!table) return;
+  if (!r.ok) {
+    table.innerHTML = `<div class="table-row"><div>❌ ${r.error || 'خطأ في تحميل البلاغات'}</div></div>`;
+    return;
+  }
+  const reports = r.reports || [];
+  table.innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 60px 1fr 1fr 120px 140px 220px;">
+      <div>ID</div>
+      <div>الوكيل</div>
+      <div>المستخدم</div>
+      <div>الحالة</div>
+      <div>التاريخ</div>
+      <div>إجراءات</div>
+    </div>
+    ${reports.map(report => `
+      <div class="table-row" style="grid-template-columns: 60px 1fr 1fr 120px 140px 220px; align-items:start;">
+        <div>${report.id}</div>
+        <div><strong>${report.official_agent_name}</strong><br><small>@${report.official_agent_username}</small></div>
+        <div><strong>${report.reported_user_name || '-'}</strong><br><small>${report.reported_user_tg_id || '-'}</small><br><small style="color:var(--muted)">${report.reason}</small></div>
+        <div>${report.status}</div>
+        <div>${new Date(report.created_at).toLocaleString('ar')}</div>
+        <div class="table-actions">
+          <button class="mini-btn" onclick="reviewOfficialAgentReport(${report.id}, 'reviewed')">مراجعة</button>
+          <button class="mini-btn" onclick="reviewOfficialAgentReport(${report.id}, 'resolved')">حل</button>
+          <button class="mini-btn danger" onclick="reviewOfficialAgentReport(${report.id}, 'rejected')">رفض</button>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+window.reviewOfficialAgentReport = async (id, status) => {
+  const admin_note = prompt('ملاحظة الأدمن:', '') || '';
+  const r = await api(`/api/admin/official-agent-reports/${id}/review`, 'PUT', { status, admin_note });
+  if (r.ok) {
+    toast('✅ تم تحديث البلاغ');
+    loadOfficialAgentReports();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+};
+
+$('#refreshReportsBtn')?.addEventListener('click', loadOfficialAgentReports);
+
+async function loadKycRequests() {
+  const r = await api('/api/admin/kyc');
+  const table = $('#kycRequestsTable');
+  if (!table) return;
+  if (!r.ok) {
+    table.innerHTML = `<div class="table-row"><div>❌ ${r.error || 'خطأ في تحميل طلبات KYC'}</div></div>`;
+    return;
+  }
+  const requests = r.requests || [];
+  table.innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 60px 1fr 140px 140px 120px 220px;">
+      <div>ID</div>
+      <div>المستخدم</div>
+      <div>الدولة</div>
+      <div>نوع الوثيقة</div>
+      <div>الحالة</div>
+      <div>إجراءات</div>
+    </div>
+    ${requests.map(item => `
+      <div class="table-row" style="grid-template-columns: 60px 1fr 140px 140px 120px 220px;">
+        <div>${item.id}</div>
+        <div><strong>${item.user_name || '-'}</strong><br><small>${item.tg_id}</small></div>
+        <div>${item.country_name}</div>
+        <div>${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
+        <div>${item.status}</div>
+        <div class="table-actions">
+          <button class="mini-btn view" onclick="viewKycRequest(${item.id})">عرض</button>
+          <button class="mini-btn success" onclick="approveKyc(${item.id})">قبول</button>
+          <button class="mini-btn danger" onclick="rejectKyc(${item.id})">رفض</button>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+window.viewKycRequest = async (id) => {
+  const r = await api(`/api/admin/kyc/${id}`);
+  if (!r.ok) return toast('❌ ' + (r.error || 'خطأ'));
+  const item = r.request;
+  const html = `
+    <div style="padding:12px;display:grid;gap:10px;">
+      <div><strong>${item.user_name || '-'}</strong> (${item.tg_id})</div>
+      <div>الدولة: ${item.country_name}</div>
+      <div>الوثيقة: ${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="${item.front_image_url}" target="_blank" style="color:#58a6ff;">فتح الصورة الأمامية</a>
+        <a href="${item.back_image_url}" target="_blank" style="color:#58a6ff;">فتح الصورة الخلفية</a>
+      </div>
+    </div>`;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `<div class="glass" style="max-width:600px;width:100%;padding:20px;border-radius:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h3>تفاصيل KYC #${id}</h3><button class="btn-small" id="closeKycModal">✕</button></div>${html}</div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#closeKycModal').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+};
+
+window.approveKyc = async (id) => {
+  const r = await api(`/api/admin/kyc/${id}/approve`, 'PUT', {});
+  if (r.ok) {
+    toast('✅ تم قبول التوثيق');
+    loadKycRequests();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+};
+
+window.rejectKyc = async (id) => {
+  const reason = prompt('سبب الرفض:');
+  if (!reason) return;
+  const r = await api(`/api/admin/kyc/${id}/reject`, 'PUT', { reason });
+  if (r.ok) {
+    toast('✅ تم رفض التوثيق');
+    loadKycRequests();
+  } else {
+    toast('❌ ' + (r.error || 'خطأ'));
+  }
+};
+
+$('#refreshKycBtn')?.addEventListener('click', loadKycRequests);
 
 // ===== Force Logout =====
 $('#forceLogoutUserBtn')?.addEventListener('click', async () => {

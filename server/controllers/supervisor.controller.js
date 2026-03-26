@@ -11,6 +11,7 @@
 import { query } from "../config/db.js";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import { signRoleToken, verifyRoleToken } from "../services/authTokens.js";
 
 // ===== AUTH: Login as supervisor =====
 export const supervisorLogin = async (req, res) => {
@@ -43,8 +44,7 @@ export const supervisorLogin = async (req, res) => {
       [supervisor.id]
     );
 
-    // Return a simple token (supervisor_id:timestamp:hash)
-    const token = Buffer.from(`sv:${supervisor.id}:${Date.now()}`).toString('base64');
+    const token = signRoleToken({ role: 'supervisor', supervisorId: supervisor.id }, '24h');
 
     res.json({
       ok: true,
@@ -63,31 +63,24 @@ export const supervisorLogin = async (req, res) => {
 // ===== MIDDLEWARE: Verify supervisor token =====
 export const verifySupervisor = async (req, res, next) => {
   try {
-    const token = req.headers["x-supervisor-token"] || req.body.supervisor_token;
+    const authHeader = req.headers["authorization"] || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : (req.headers["x-supervisor-token"] || req.body.supervisor_token);
     if (!token) {
       return res.status(403).json({ ok: false, error: "Unauthorized" });
     }
 
-    // Decode token
     let decoded;
     try {
-      decoded = Buffer.from(token, 'base64').toString('utf8');
+      decoded = verifyRoleToken(token);
     } catch (e) {
       return res.status(403).json({ ok: false, error: "Invalid token" });
     }
 
-    const parts = decoded.split(':');
-    if (parts[0] !== 'sv' || !parts[1]) {
+    if (decoded.role !== 'supervisor' || !decoded.supervisorId) {
       return res.status(403).json({ ok: false, error: "Invalid token format" });
     }
 
-    const supervisorId = parseInt(parts[1]);
-    const timestamp = parseInt(parts[2]);
-
-    // Token expires after 24 hours
-    if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
-      return res.status(403).json({ ok: false, error: "Token expired, please login again" });
-    }
+    const supervisorId = parseInt(decoded.supervisorId);
 
     const result = await query(
       "SELECT * FROM supervisors WHERE id = $1 AND is_active = TRUE",

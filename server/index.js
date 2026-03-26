@@ -18,6 +18,7 @@ import analyticsRoutes from "./routes/analytics.routes.js";
 import leaderboardRoutes from "./routes/leaderboard.routes.js";
 import supervisorRoutes from "./routes/supervisor.routes.js";
 import agentRoutes from "./routes/agent.routes.js";
+import officialAgentRoutes from "./routes/officialAgent.routes.js";
 
 // Bot
 import bot from "./bot/bot.js";
@@ -50,6 +51,15 @@ app.get("/admin.html", (req, res) => {
     "X-Robots-Tag": "noindex, nofollow",
   });
   res.sendFile(path.join(__dirname, "../client/admin.html"));
+});
+
+app.get("/official_agent.html", (req, res) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "X-Robots-Tag": "noindex, nofollow",
+  });
+  res.sendFile(path.join(__dirname, "../client/official_agent.html"));
 });
 
 // Serve static files
@@ -102,6 +112,28 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/supervisor", supervisorRoutes);
 app.use("/api/agent", agentRoutes);
+app.use("/api/official-agent", officialAgentRoutes);
+
+app.get("/api/admin/kyc/:id/image/:side", async (req, res) => {
+  try {
+    const token = req.headers["x-admin-token"];
+    if (!token || token !== process.env.ADMIN_TOKEN) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+    const side = req.params.side === "back" ? "back" : "front";
+    const result = await pool.query(
+      `SELECT ${side}_file_path AS file_path FROM kyc_verifications WHERE id = $1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0 || !result.rows[0].file_path) {
+      return res.status(404).json({ ok: false, error: "Image not found" });
+    }
+    return res.sendFile(result.rows[0].file_path);
+  } catch (error) {
+    logger.error(`KYC image serve error: ${error.message}`);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
 
 // ===== Session Management API =====
 // Check if session is still valid

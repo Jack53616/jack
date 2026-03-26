@@ -5,6 +5,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import { query as dbQuery } from "../config/db.js";
+import { COUNTRIES, getCountryPage } from "../constants/countries.js";
+import { clearBotState, ensureDraftKyc, ensureKycDirectory, getBotState, submitKycRequest, updateKycFile, upsertBotState } from "../services/kyc.service.js";
 
 // Explicitly load .env from project root
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -176,6 +178,53 @@ const cleanKey = (key = "") => extractKeyCandidates(key)[0] || "";
 const q = (sql, params = []) => dbQuery(sql, params);
 const isAdmin = (msg) => Number(msg?.from?.id) === Number(ADMIN_ID);
 
+const KYC_FLOW = 'kyc_verification';
+
+async function getUserByTelegramId(tgId) {
+  const result = await q(`SELECT * FROM users WHERE tg_id = $1`, [tgId]);
+  return result.rows[0] || null;
+}
+
+function buildKycCountryKeyboard(page = 0) {
+  const items = getCountryPage(page, 8);
+  const rows = [];
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2).map((country) => ({
+      text: country.name,
+      callback_data: `kyc_country_${page}_${country.code}`
+    })));
+  }
+
+  const totalPages = Math.ceil(COUNTRIES.length / 8);
+  const nav = [];
+  if (page > 0) nav.push({ text: '⬅️ السابق', callback_data: `kyc_page_${page - 1}` });
+  if (page < totalPages - 1) nav.push({ text: 'التالي ➡️', callback_data: `kyc_page_${page + 1}` });
+  if (nav.length) rows.push(nav);
+  rows.push([{ text: '❌ إلغاء', callback_data: 'kyc_cancel' }]);
+  return { inline_keyboard: rows };
+}
+
+async function startKycFlow(chatId, tgId) {
+  const user = await getUserByTelegramId(tgId);
+  if (!user) {
+    return bot.sendMessage(chatId, '❌ يجب تفعيل حسابك أولاً قبل توثيق الهوية.');
+  }
+
+  const pending = await q(
+    `SELECT id, status FROM kyc_verifications WHERE user_id = $1 AND status IN ('draft', 'pending') ORDER BY created_at DESC LIMIT 1`,
+    [user.id]
+  );
+  if (pending.rows.length > 0 && pending.rows[0].status === 'pending') {
+    return bot.sendMessage(chatId, 'ℹ️ لديك طلب توثيق هوية قيد المراجعة بالفعل.');
+  }
+
+  await upsertBotState(user.id, KYC_FLOW, 'choose_country', {}, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+  return bot.sendMessage(chatId, '🪪 *توثيق الهوية*\n\nاختر دولتك أولاً:', {
+    parse_mode: 'Markdown',
+    reply_markup: buildKycCountryKeyboard(0)
+  });
+}
+
 // ===== Generate unique referral code =====
 function generateReferralCode() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -323,6 +372,7 @@ Contact support if you believe this is an error.`, {
       reply_markup: {
         inline_keyboard: [
           [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
+          [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }],
           [{ text: "◆ الدعم الفني | Support ◆", url: "https://t.me/QL_Support" }]
         ]
       }
@@ -331,7 +381,10 @@ Contact support if you believe this is an error.`, {
     bot.sendMessage(chatId, welcomeCaption, {
       parse_mode: "Markdown",
       reply_markup: {
-          inline_keyboard: [[{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]]
+          inline_keyboard: [
+            [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
+            [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }]
+          ]
       }
     });
   }
@@ -1104,6 +1157,84 @@ bot.on('callback_query', async (callbackQuery) => {
   const msg = callbackQuery.message;
   const chatId = msg.chat.id;
   const data = callbackQuery.data;
+
+  if (data === 'menu_kyc') {
+    await bot.answerCallbackQuery(callbackQuery.id);
+    return startKycFlow(chatId, callbackQuery.from.id);
+  }
+
+  if (data.startsWith('kyc_page_')) {
+    const page = Number(data.split('_').pop()) || 0;
+    await bot.answerCallbackQuery(callbackQuery.id);
+    return bot.editMessageReplyMarkup(buildKycCountryKeyboard(page), { chat_id: chatId, message_id: msg.message_id });
+  }
+
+  if (data.startsWith('kyc_country_')) {
+    const parts = data.split('_');
+    const code = parts[3];
+    const country = COUNTRIES.find((item) => item.code === code);
+    const user = await getUserByTelegramId(callbackQuery.from.id);
+    if (!country || !user) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: 'خطأ في اختيار الدولة' });
+    }
+    await upsertBotState(user.id, KYC_FLOW, 'choose_document', {
+      countryCode: country.code,
+      countryName: country.name
+    }, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    await bot.answerCallbackQuery(callbackQuery.id, { text: `تم اختيار ${country.name}` });
+    return bot.sendMessage(chatId, `✅ الدولة المختارة: *${country.name}*\n\nاختر نوع الوثيقة:`, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🪪 هوية شخصية', callback_data: 'kyc_doctype_national_id' }],
+          [{ text: '🚗 رخصة قيادة', callback_data: 'kyc_doctype_driving_license' }],
+          [{ text: '❌ إلغاء', callback_data: 'kyc_cancel' }]
+        ]
+      }
+    });
+  }
+
+  if (data.startsWith('kyc_doctype_')) {
+    const documentType = data.replace('kyc_doctype_', '');
+    const user = await getUserByTelegramId(callbackQuery.from.id);
+    if (!user) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: 'الحساب غير موجود' });
+    }
+    const state = await getBotState(user.id, KYC_FLOW);
+    const payload = state?.payload_json ? JSON.parse(state.payload_json) : {};
+    payload.documentType = documentType;
+    await upsertBotState(user.id, KYC_FLOW, 'await_front_image', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    await bot.answerCallbackQuery(callbackQuery.id);
+    return bot.sendMessage(chatId, '📷 أرسل الآن *الصورة الأمامية* للوثيقة.', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'kyc_confirm') {
+    const user = await getUserByTelegramId(callbackQuery.from.id);
+    if (!user) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: 'الحساب غير موجود' });
+    }
+    const state = await getBotState(user.id, KYC_FLOW);
+    const payload = state?.payload_json ? JSON.parse(state.payload_json) : {};
+    if (!payload.requestId) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: 'بيانات الطلب ناقصة' });
+    }
+    await submitKycRequest(payload.requestId);
+    await clearBotState(user.id, KYC_FLOW);
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'تم إرسال الطلب' });
+    try {
+      await bot.sendMessage(Number(ADMIN_ID), `🪪 طلب توثيق جديد\n\n👤 ${user.name || user.tg_id}\n🆔 ${user.tg_id}\n🌍 ${payload.countryName}\n📄 ${payload.documentType === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}`);
+    } catch (e) {}
+    return bot.sendMessage(chatId, '✅ تم إرسال طلب التوثيق إلى الإدارة للمراجعة.');
+  }
+
+  if (data === 'kyc_cancel') {
+    const user = await getUserByTelegramId(callbackQuery.from.id);
+    if (user) {
+      await clearBotState(user.id, KYC_FLOW);
+    }
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'تم الإلغاء' });
+    return bot.sendMessage(chatId, '❌ تم إلغاء عملية التوثيق.');
+  }
   
   // Only admin can use panel
   if (String(chatId) !== String(ADMIN_ID)) {
@@ -1374,6 +1505,56 @@ bot.on('callback_query', async (callbackQuery) => {
 
 // ===== Handle pending admin input (text messages after button press) =====
 bot.on('message', async (msg) => {
+  if (msg.photo && msg.from?.id) {
+    const user = await getUserByTelegramId(msg.from.id);
+    if (user) {
+      const state = await getBotState(user.id, KYC_FLOW);
+      if (state && ['await_front_image', 'await_back_image'].includes(state.state)) {
+        try {
+          const payload = state.payload_json ? JSON.parse(state.payload_json) : {};
+          const draft = await ensureDraftKyc({
+            userId: user.id,
+            tgId: user.tg_id,
+            countryCode: payload.countryCode,
+            countryName: payload.countryName,
+            documentType: payload.documentType
+          });
+
+          payload.requestId = draft.id;
+          const side = state.state === 'await_front_image' ? 'front' : 'back';
+          const photo = msg.photo[msg.photo.length - 1];
+          const file = await bot.getFile(photo.file_id);
+          const directory = await ensureKycDirectory(user.id, draft.id);
+          const targetPath = path.join(directory, `${side}.jpg`);
+          const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+          const response = await fetch(fileUrl);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const fs = await import('fs/promises');
+          await fs.writeFile(targetPath, buffer);
+          await updateKycFile(draft.id, side, targetPath, photo.file_id);
+
+          if (side === 'front') {
+            await upsertBotState(user.id, KYC_FLOW, 'await_back_image', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+            return bot.sendMessage(msg.chat.id, '✅ تم حفظ الصورة الأمامية. الآن أرسل *الصورة الخلفية*.', { parse_mode: 'Markdown' });
+          }
+
+          await upsertBotState(user.id, KYC_FLOW, 'confirm_submit', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+          return bot.sendMessage(msg.chat.id, `📋 *راجع البيانات قبل الإرسال*\n\n🌍 الدولة: ${payload.countryName}\n📄 الوثيقة: ${payload.documentType === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}\n🖼 تم استلام الأمامية والخلفية\n\nهل تريد الإرسال؟`, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ تأكيد الإرسال', callback_data: 'kyc_confirm' }],
+                [{ text: '❌ إلغاء', callback_data: 'kyc_cancel' }]
+              ]
+            }
+          });
+        } catch (error) {
+          return bot.sendMessage(msg.chat.id, `❌ فشل حفظ صورة الوثيقة: ${error.message}`);
+        }
+      }
+    }
+  }
+
   const chatId = msg.chat.id;
   if (String(chatId) !== String(ADMIN_ID)) return;
   if (!adminPending[chatId]) return;

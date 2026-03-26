@@ -28,6 +28,16 @@ export const authLimiter = rateLimit({
   trustProxy: true,
 });
 
+export const officialAgentAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { ok: false, error: "Too many official agent login attempts, please try again later." },
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+});
+
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,

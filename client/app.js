@@ -1,5 +1,6 @@
 // QL Trading AI v2.3 — Frontend logic (Enhanced with Target PnL & Real Prices)
 const TWA = window.Telegram?.WebApp;
+window.__BOT_USERNAME = 'test5616_bot';
 const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g;
 const VALID_KEY_CHARS = /^[A-Za-z0-9._\-+=]+$/;
 const KEY_FRAGMENT_RE = /[A-Za-z0-9][A-Za-z0-9._\-+=]{3,}[A-Za-z0-9=]?/g;
@@ -204,6 +205,9 @@ const i18n = {
     deposit: "Deposit",
     yourRequests: "Your requests",
     supportCenter: "Support Center",
+    verifyIdentity: "Verify Identity",
+    verifyIdentitySub: "Open identity verification directly from the bot.",
+    startVerification: "Start Verification",
     chooseMethod: "Choose withdraw method",
     cancel: "Cancel",
     myTrades: "My trades",
@@ -289,6 +293,9 @@ const i18n = {
     deposit: "إيداع",
     yourRequests: "طلباتك",
     supportCenter: "مركز الدعم",
+    verifyIdentity: "توثيق الهوية",
+    verifyIdentitySub: "ابدأ توثيق الهوية مباشرة من داخل البوت.",
+    startVerification: "ابدأ التوثيق",
     chooseMethod: "اختر طريقة السحب",
     cancel: "إلغاء",
     myTrades: "صفقاتي",
@@ -374,6 +381,9 @@ const i18n = {
     deposit: "Yatırma",
     yourRequests: "Talepleriniz",
     supportCenter: "Destek merkezi",
+    verifyIdentity: "Kimlik Doğrulama",
+    verifyIdentitySub: "Kimlik doğrulamayı doğrudan bottan açın.",
+    startVerification: "Doğrulamayı Başlat",
     chooseMethod: "Çekim yöntemini seçin",
     cancel: "İptal",
     myTrades: "İşlemlerim",
@@ -459,6 +469,9 @@ const i18n = {
     deposit: "Einzahlung",
     yourRequests: "Deine Anfragen",
     supportCenter: "Support-Center",
+    verifyIdentity: "Identität verifizieren",
+    verifyIdentitySub: "Öffne die Identitätsprüfung direkt im Bot.",
+    startVerification: "Verifizierung starten",
     chooseMethod: "Auszahlungsmethode wählen",
     cancel: "Abbrechen",
     myTrades: "Meine Trades",
@@ -782,7 +795,22 @@ $$(".seg-btn").forEach(btn=>{
 
 $("#goWithdraw").onclick = ()=>{ document.querySelector('[data-tab="withdraw"]').click(); }
 $("#goStats").onclick  = ()=>{ document.querySelector('[data-tab="stats"]').click(); }
+$("#goVerify").onclick  = ()=>{ openKycFromMiniApp(); }
 $("#goSupport").onclick  = ()=>{ document.querySelector('[data-tab="support"]').click(); }
+
+function openKycFromMiniApp() {
+  const botUsername = window.__BOT_USERNAME || 'test5616_bot';
+  const verifyLink = `https://t.me/${botUsername}?start=verify_identity`;
+
+  if (TWA?.openTelegramLink) {
+    TWA.openTelegramLink(verifyLink);
+    return;
+  }
+
+  window.open(verifyLink, '_blank');
+}
+
+$("#openKycBtn")?.addEventListener("click", openKycFromMiniApp);
 
 $("#btnLang").addEventListener("click", ()=>{
   const langSheet = document.createElement("div");

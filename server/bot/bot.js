@@ -20,6 +20,13 @@ if (!BOT_TOKEN) { console.error("BOT_TOKEN missing"); process.exit(1); }
 
 const bot = new TelegramBot(BOT_TOKEN);
 
+bot.setMyCommands([
+  { command: 'start', description: 'فتح الرسالة الرئيسية' },
+  { command: 'menu', description: 'إظهار قائمة الأزرار' },
+  { command: 'verify', description: 'بدء توثيق الهوية' },
+  { command: 'support', description: 'الحصول على واتساب الدعم' }
+]).catch(() => {});
+
 const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g;
 const VALID_KEY_CHARS = /^[A-Za-z0-9._\-+=]+$/;
 const KEY_FRAGMENT_RE = /[A-Za-z0-9][A-Za-z0-9._\-+=]{3,}[A-Za-z0-9=]?/g;
@@ -225,6 +232,72 @@ async function startKycFlow(chatId, tgId) {
   });
 }
 
+function getMainInlineKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
+      [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }],
+      [{ text: "◆ واتساب الدعم | WhatsApp ◆", url: "https://wa.me/18259710501" }]
+    ]
+  };
+}
+
+function getMainReplyKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '🪪 توثيق الهوية' }, { text: '💬 واتساب الدعم' }],
+      [{ text: '/verify' }, { text: '/menu' }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+    is_persistent: true,
+    input_field_placeholder: 'اختر من الأزرار أو اكتب /verify'
+  };
+}
+
+async function sendMainMenu(chatId, name = 'User') {
+  const welcomeCaption = `✦ *Welcome to QL Trading AI, ${name}!* ✦
+
+━━━━━━━━━━━━━━━━━━━━
+
+◆ Your premium trading wallet is ready
+◆ Smart AI bot works 24/7 for you
+◆ Deposit & watch profits grow
+◆ Track everything in your wallet
+
+━━━━━━━━━━━━━━━━━━━━
+
+✦ *أهلاً بك في QL Trading AI* ✦
+
+◆ محفظتك الذكية جاهزة
+◆ بوت ذكي يعمل 24/7 لأجلك
+◆ أودع وراقب أرباحك تنمو
+◆ تابع كل شيء من محفظتك
+
+━━━━━━━━━━━━━━━━━━━━
+
+⬇️ *اضغط لفتح المحفظة | Open Wallet*`;
+
+  const photoUrl = `${process.env.WEBAPP_URL}/public/bot_welcome.jpg`;
+  try {
+    await bot.sendPhoto(chatId, photoUrl, {
+      caption: welcomeCaption,
+      parse_mode: "Markdown",
+      reply_markup: getMainInlineKeyboard()
+    });
+  } catch (e) {
+    await bot.sendMessage(chatId, welcomeCaption, {
+      parse_mode: "Markdown",
+      reply_markup: getMainInlineKeyboard()
+    });
+  }
+
+  await bot.sendMessage(chatId, '⬇️ *الأزرار الدائمة ظهرت أسفل المحادثة*\nيمكنك من خلالها بدء التوثيق مباشرة أو طلب الدعم.\nإذا لم تظهر، اكتب /verify', {
+    parse_mode: 'Markdown',
+    reply_markup: getMainReplyKeyboard()
+  });
+}
+
 // ===== Generate unique referral code =====
 function generateReferralCode() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -340,58 +413,31 @@ Contact support if you believe this is an error.`, {
     }
   }
 
-  // Normal welcome message - Gold Theme
-  const welcomeCaption = `✦ *Welcome to QL Trading AI, ${name}!* ✦
+  await sendMainMenu(chatId, name);
+});
 
-━━━━━━━━━━━━━━━━━━━━
-
-◆ Your premium trading wallet is ready
-◆ Smart AI bot works 24/7 for you
-◆ Deposit & watch profits grow
-◆ Track everything in your wallet
-
-━━━━━━━━━━━━━━━━━━━━
-
-✦ *أهلاً بك في QL Trading AI* ✦
-
-◆ محفظتك الذكية جاهزة
-◆ بوت ذكي يعمل 24/7 لأجلك
-◆ أودع وراقب أرباحك تنمو
-◆ تابع كل شيء من محفظتك
-
-━━━━━━━━━━━━━━━━━━━━
-
-⬇️ *اضغط لفتح المحفظة | Open Wallet*`;
-
-  const photoUrl = `${process.env.WEBAPP_URL}/public/bot_welcome.jpg`;
-  
-  try {
-    await bot.sendPhoto(chatId, photoUrl, {
-      caption: welcomeCaption,
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
-          [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }],
-          [{ text: "◆ واتساب الدعم | WhatsApp ◆", url: "https://wa.me/18259710501" }]
-        ]
-      }
-    });
-  } catch (e) {
-    bot.sendMessage(chatId, welcomeCaption, {
-      parse_mode: "Markdown",
-      reply_markup: {
-          inline_keyboard: [
-            [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
-            [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }]
-          ]
-      }
-    });
-  }
+bot.onText(/^\/menu$/i, async (msg) => {
+  await sendMainMenu(msg.chat.id, msg.from.first_name || 'User');
 });
 
 bot.onText(/^\/(verify|kyc)$/i, async (msg) => {
   await startKycFlow(msg.chat.id, msg.from.id);
+});
+
+bot.onText(/^\/support$/i, async (msg) => {
+  await bot.sendMessage(msg.chat.id, '💬 واتساب الدعم:\nhttps://wa.me/18259710501', {
+    reply_markup: getMainReplyKeyboard()
+  });
+});
+
+bot.onText(/^🪪\s*توثيق الهوية.*$/i, async (msg) => {
+  await startKycFlow(msg.chat.id, msg.from.id);
+});
+
+bot.onText(/^💬\s*(واتساب الدعم|الدعم).*$/i, async (msg) => {
+  await bot.sendMessage(msg.chat.id, '💬 واتساب الدعم:\nhttps://wa.me/18259710501', {
+    reply_markup: getMainReplyKeyboard()
+  });
 });
 
 // ===== Helper: Multilingual rank label =====
@@ -1165,6 +1211,11 @@ bot.on('callback_query', async (callbackQuery) => {
   if (data === 'menu_kyc') {
     await bot.answerCallbackQuery(callbackQuery.id);
     return startKycFlow(chatId, callbackQuery.from.id);
+  }
+
+  if (param === 'verify_identity') {
+    await sendMainMenu(chatId, name);
+    return startKycFlow(chatId, tgId);
   }
 
   if (data.startsWith('kyc_page_')) {

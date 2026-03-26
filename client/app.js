@@ -160,6 +160,7 @@ const state = {
   lang: localStorage.getItem("lang") || "en",
   feedTimer: null,
   refreshTimer: null,
+  tradesVisible: false,
   musicOn: false,
   method: "usdt_trc20",
   methodAddr: ""
@@ -763,6 +764,7 @@ $$(".seg-btn").forEach(btn=>{
     $$(".seg-btn").forEach(b=>b.classList.remove("active"));
     btn.classList.add("active");
     const tab = btn.dataset.tab;
+    state.tradesVisible = tab === "trades";
     $$(".tab").forEach(s=>s.classList.remove("show"));
     $(`#tab-${tab}`)?.classList.add("show");
     
@@ -1023,6 +1025,14 @@ $("#reqWithdraw").addEventListener("click", async () => {
   const userBalance = Number(state.user?.balance || 0);
   if (amount > userBalance) return notify(isAr ? "❌ الرصيد غير كافي" : isTr ? "❌ Yetersiz bakiye" : isDe ? "❌ Unzureichendes Guthaben" : "❌ Insufficient balance");
 
+  try {
+    const tradesRes = await fetch(`/api/trades/${tg}`).then(response => response.json());
+    const openTradesCount = Array.isArray(tradesRes?.trades) ? tradesRes.trades.length : 0;
+    if (openTradesCount > 0) {
+      return notify(isAr ? "❌ لا يمكن طلب السحب أثناء وجود صفقات مفتوحة" : isTr ? "❌ Açık işlemler varken çekim yapılamaz" : isDe ? "❌ Auszahlung bei offenen Trades nicht möglich" : "❌ Withdrawals are blocked while trades are open");
+    }
+  } catch (e) {}
+
   // Fetch fee preview first
   try {
     const feeRes = await fetch(`/api/wallet/withdraw/fee-preview?tg_id=${tg}&amount=${amount}`).then(r => r.json());
@@ -1068,7 +1078,7 @@ function showWithdrawSuccess(amount) {
   };
 }
 
-$("#whatsapp").onclick = ()=> window.open("https://wa.me/message/P6BBPSDL2CC4D1","_blank");
+$("#whatsapp").onclick = ()=> window.open("https://wa.me/18259710501","_blank");
 
 function hydrateUser(user){
   if(!user) return;
@@ -1591,7 +1601,7 @@ async function loadTrades(forceRedraw = false){
                   </div>
                   <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
                     <small class="trade-timer" style="opacity:0.6">⏱ ${timeStr}</small>
-                    <small class="trade-price" style="opacity:0.5;">💰 $${Number(trade.current_price || 0).toFixed(2)}</small>
+                    <small class="trade-price" style="display:none"></small>
                   </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
@@ -1663,9 +1673,7 @@ async function loadTrades(forceRedraw = false){
           
           // Update current price
           const priceEl = card.querySelector('.trade-price');
-          if (priceEl) {
-            priceEl.textContent = `💰 $${Number(trade.current_price || 0).toFixed(2)}`;
-          }
+          if (priceEl) priceEl.textContent = '';
           
           // Update timer
           const opened = new Date(trade.opened_at);
@@ -1746,8 +1754,9 @@ function startRealtimeUpdates() {
   if (tradesUpdateInterval) clearInterval(tradesUpdateInterval);
   tradesUpdateInterval = setInterval(async () => {
     try {
-      // Always update trades data (smart update: no flicker if list unchanged)
-      await loadTrades();
+      if (state.tradesVisible) {
+        await loadTrades();
+      }
       
       // Update user balance every cycle too
       await refreshUser();
@@ -1884,6 +1893,7 @@ $("#shareRefLinkBtn")?.addEventListener("click", () => {
         g.style.pointerEvents = "none";
     }
     // Start real-time updates when logged in
+    state.tradesVisible = document.querySelector('#tab-trades')?.classList.contains('show') || false;
     startRealtimeUpdates();
   }
 
@@ -1897,6 +1907,7 @@ $("#shareRefLinkBtn")?.addEventListener("click", () => {
     if(!opened) {
       showGate();
     } else {
+      state.tradesVisible = document.querySelector('#tab-trades')?.classList.contains('show') || false;
       startRealtimeUpdates();
     }
   }else{

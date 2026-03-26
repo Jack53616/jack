@@ -792,10 +792,8 @@ async function autoActivateMassTrade(massTrade) {
     const balanceBefore = Number(user.balance);
     const targetPnl = Number((balanceBefore * appliedPercentage / 100).toFixed(2));
     
-    // FIX: Direction is random, NOT based on targetPnl sign
-    // This fixes the bug where BUY always wins and SELL always loses
-    const directions = ['BUY', 'SELL'];
-    const direction = directions[Math.floor(Math.random() * 2)];
+    let direction = massTrade.direction || 'BUY';
+    if (direction === 'random') direction = Math.random() > 0.5 ? 'BUY' : 'SELL';
 
     await query(
       `INSERT INTO mass_trade_user_trades (mass_trade_id, user_id, symbol, direction, entry_price, current_price, lot_size, pnl, target_pnl, duration_seconds, status, opened_at)
@@ -815,22 +813,13 @@ async function autoActivateMassTrade(massTrade) {
 
     if (user.tg_id) {
       try {
-        await bot.sendMessage(Number(user.tg_id), `🚀 *البوت دخل صفقة جديدة!*
+        await bot.sendMessage(Number(user.tg_id), `🚀 *تم فتح صفقة جديدة تلقائياً!*
 
 💹 *الرمز:* ${massTrade.symbol || 'XAUUSD'}
 🔹 *الاتجاه:* ${direction}
 ⏱ *المدة:* ${Math.round(durationSeconds / 60)} دقيقة
 
-👀 يمكنك المراقبة من خيار *صفقاتي*
-
----
-
-🚀 *Bot entered a new trade!*
-🔸 *Symbol:* ${massTrade.symbol || 'XAUUSD'}
-📊 *Direction:* ${direction}
-⏱ *Duration:* ${Math.round(durationSeconds / 60)} min
-
-📱 Monitor from *My Trades*`, { parse_mode: "Markdown" });
+👀 يمكنك المراقبة من خيار *صفقاتي*`, { parse_mode: "Markdown" });
       } catch (err) {}
     }
 

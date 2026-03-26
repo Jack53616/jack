@@ -154,6 +154,21 @@ export const requestWithdraw = async (req, res) => {
 
     const user = userResult.rows[0];
 
+    const openTradesResult = await query(
+      `SELECT EXISTS (
+        SELECT 1 FROM trades WHERE user_id = $1 AND status = 'open'
+        UNION ALL
+        SELECT 1 FROM mass_trade_user_trades WHERE user_id = $1 AND status = 'open'
+        UNION ALL
+        SELECT 1 FROM custom_trades WHERE user_id = $1 AND status = 'open'
+      ) AS has_open_trades`,
+      [user.id]
+    );
+
+    if (openTradesResult.rows[0]?.has_open_trades) {
+      return res.status(400).json({ ok: false, error: "Withdrawals are blocked while user has open trades" });
+    }
+
     if (user.balance < amount) {
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
@@ -284,6 +299,21 @@ export const cancelWithdraw = async (req, res) => {
     }
 
     const request = reqResult.rows[0];
+
+    const openTradesResult = await query(
+      `SELECT EXISTS (
+        SELECT 1 FROM trades WHERE user_id = $1 AND status = 'open'
+        UNION ALL
+        SELECT 1 FROM mass_trade_user_trades WHERE user_id = $1 AND status = 'open'
+        UNION ALL
+        SELECT 1 FROM custom_trades WHERE user_id = $1 AND status = 'open'
+      ) AS has_open_trades`,
+      [user_id]
+    );
+
+    if (openTradesResult.rows[0]?.has_open_trades) {
+      return res.status(400).json({ ok: false, error: "Cannot cancel withdrawal while trades are open" });
+    }
 
     // Return frozen balance
     await query(

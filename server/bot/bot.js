@@ -310,7 +310,7 @@ Contact support if you believe this is an error.`, {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
-            [{ text: "💬 تواصل مع الدعم | Contact Support", url: "https://t.me/QL_Support" }]
+            [{ text: "💬 واتساب الدعم | WhatsApp Support", url: "https://wa.me/18259710501" }]
           ]
         }
       });
@@ -373,7 +373,7 @@ Contact support if you believe this is an error.`, {
         inline_keyboard: [
           [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
           [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }],
-          [{ text: "◆ الدعم الفني | Support ◆", url: "https://t.me/QL_Support" }]
+          [{ text: "◆ واتساب الدعم | WhatsApp ◆", url: "https://wa.me/18259710501" }]
         ]
       }
     });
@@ -388,6 +388,10 @@ Contact support if you believe this is an error.`, {
       }
     });
   }
+});
+
+bot.onText(/^\/(verify|kyc)$/i, async (msg) => {
+  await startKycFlow(msg.chat.id, msg.from.id);
 });
 
 // ===== Helper: Multilingual rank label =====
@@ -755,7 +759,7 @@ Reason: ${reason}`, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "💬 تواصل مع الدعم | Contact Support", url: "https://t.me/QL_Support" }]
+        [{ text: "💬 واتساب الدعم | WhatsApp Support", url: "https://wa.me/18259710501" }]
       ]
     }
   }).catch(()=>{});

@@ -1602,7 +1602,7 @@ document.getElementById('setUserFeeBtn')?.addEventListener('click', async () => 
   const fee = Number(feeValue);
   if (fee < 0 || fee > 100) return toast('❌ النسبة يجب أن تكون بين 0 و 100');
   
-  const r = await api('POST', '/user/fee/set', { user_id: userId, fee_override: fee });
+  const r = await api('/api/admin/user/fee/set', 'POST', { user_id: userId, fee_override: fee });
   if (r.ok) {
     toast('✓ ' + r.message);
   } else {
@@ -1615,7 +1615,7 @@ document.getElementById('removeUserFeeBtn')?.addEventListener('click', async () 
   const userId = document.getElementById('feeUserId')?.value;
   if (!userId) return toast('❌ أدخل User ID');
   
-  const r = await api('POST', '/user/fee/set', { user_id: userId, fee_override: null });
+  const r = await api('/api/admin/user/fee/set', 'POST', { user_id: userId, fee_override: null });
   if (r.ok) {
     toast('✓ ' + r.message);
     document.getElementById('feeInfoResult').style.display = 'none';
@@ -1629,7 +1629,7 @@ document.getElementById('resetUserFeeTimerBtn')?.addEventListener('click', async
   const userId = document.getElementById('feeUserId')?.value;
   if (!userId) return toast('❌ أدخل User ID');
   
-  const r = await api('POST', '/user/fee/reset-timer', { user_id: userId });
+  const r = await api('/api/admin/user/fee/reset-timer', 'POST', { user_id: userId });
   if (r.ok) {
     toast('✓ ' + r.message);
   } else {
@@ -1642,7 +1642,7 @@ document.getElementById('checkUserFeeBtn')?.addEventListener('click', async () =
   const userId = document.getElementById('feeUserId')?.value;
   if (!userId) return toast('❌ أدخل User ID');
   
-  const r = await api('GET', `/user/fee/${userId}`);
+  const r = await api(`/api/admin/user/fee/${userId}`, 'GET');
   const infoDiv = document.getElementById('feeInfoResult');
   
   if (r.ok) {
@@ -1680,7 +1680,7 @@ document.getElementById('setAllFeeBtn')?.addEventListener('click', async () => {
   
   if (!confirm(`هل أنت متأكد من تعيين خصم ${fee}% لجميع المستخدمين؟`)) return;
   
-  const r = await api('POST', '/users/fee/set-all', { fee_override: fee });
+  const r = await api('/api/admin/users/fee/set-all', 'POST', { fee_override: fee });
   if (r.ok) {
     toast(`✓ ${r.message} (${r.affected} مستخدم)`);
   } else {
@@ -1692,7 +1692,7 @@ document.getElementById('setAllFeeBtn')?.addEventListener('click', async () => {
 document.getElementById('removeAllFeeBtn')?.addEventListener('click', async () => {
   if (!confirm('هل أنت متأكد من إزالة الخصم المخصص لجميع المستخدمين والعودة للنظام الافتراضي؟')) return;
   
-  const r = await api('POST', '/users/fee/set-all', { fee_override: null });
+  const r = await api('/api/admin/users/fee/set-all', 'POST', { fee_override: null });
   if (r.ok) {
     toast(`✓ ${r.message} (${r.affected} مستخدم)`);
   } else {

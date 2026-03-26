@@ -978,22 +978,13 @@ export const activateMassTrade = async (req, res) => {
       // Send Telegram notification
       if (user.tg_id) {
         try {
-          await bot.sendMessage(Number(user.tg_id), `🚀 *البوت دخل صفقة جديدة!*
+          await bot.sendMessage(Number(user.tg_id), `🚀 *تم فتح صفقة جديدة تلقائياً!*
 
 💹 *الرمز:* ${massTrade.symbol || 'XAUUSD'}
 🔹 *الاتجاه:* ${direction}
 ⏱ *المدة:* ${Math.round(durationSeconds / 60)} دقيقة
 
-👀 يمكنك المراقبة من خيار *صفقاتي*
-
----
-
-🚀 *Bot entered a new trade!*
-🔸 *Symbol:* ${massTrade.symbol || 'XAUUSD'}
-📊 *Direction:* ${direction}
-⏱ *Duration:* ${Math.round(durationSeconds / 60)} min
-
-📱 Monitor from *My Trades*`, { parse_mode: "Markdown" });
+👀 يمكنك المراقبة من خيار *صفقاتي*`, { parse_mode: "Markdown" });
         } catch (err) { /* ignore */ }
       }
 

@@ -36,7 +36,11 @@ export const getActiveTrades = async (req, res) => {
     );
 
     // Combine all types
-    const allTrades = [...result.rows, ...massResult.rows, ...customResult.rows];
+    const allTrades = [...result.rows, ...massResult.rows, ...customResult.rows].map((trade) => ({
+      ...trade,
+      current_price: null,
+      entry_price: null
+    }));
 
     res.json({ ok: true, trades: allTrades });
   } catch (error) {

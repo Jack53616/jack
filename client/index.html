@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <title>QL Trading AI</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css"/>
+</head>
+<body>
+
+<!-- Maintenance Screen -->
+<div id="maintenanceScreen" class="maintenance-screen hidden">
+  <div class="maintenance-content">
+    <div class="maintenance-icon">
+      <div class="gear-container">
+        <svg class="gear gear-large" viewBox="0 0 100 100">
+          <path d="M50 10 L55 25 L70 20 L65 35 L80 40 L70 50 L80 60 L65 65 L70 80 L55 75 L50 90 L45 75 L30 80 L35 65 L20 60 L30 50 L20 40 L35 35 L30 20 L45 25 Z"/>
+        </svg>
+        <svg class="gear gear-small" viewBox="0 0 100 100">
+          <path d="M50 10 L55 25 L70 20 L65 35 L80 40 L70 50 L80 60 L65 65 L70 80 L55 75 L50 90 L45 75 L30 80 L35 65 L20 60 L30 50 L20 40 L35 35 L30 20 L45 25 Z"/>
+        </svg>
+      </div>
+    </div>
+    <h1 class="maintenance-title">صيانة النظام</h1>
+    <p class="maintenance-subtitle">System Maintenance</p>
+    <p class="maintenance-desc">نعمل على تحسين تجربتك. سنعود قريباً!</p>
+    <p class="maintenance-desc-en">We're improving your experience. We'll be back soon!</p>
+    <div class="maintenance-loader">
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Ban Screen -->
+<div id="banScreen" class="ban-screen hidden">
+  <div class="ban-content">
+    <div class="ban-icon">
+      <svg viewBox="0 0 100 100" width="80" height="80">
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#ff3b63" stroke-width="4"/>
+        <line x1="25" y1="25" x2="75" y2="75" stroke="#ff3b63" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <h1 class="ban-title">تم حظر حسابك</h1>
+    <p class="ban-subtitle">Account Suspended</p>
+    <div class="ban-reason-box">
+      <div class="ban-reason-label">سبب الحظر | Reason:</div>
+      <div id="banReasonText" class="ban-reason-text">مخالفة شروط الاستخدام</div>
+    </div>
+    <div class="ban-info">
+      <p>إذا كنت تعتقد أن هذا خطأ، يرجى التواصل مع فريق الدعم.</p>
+      <p>If you believe this is an error, please contact our support team.</p>
+    </div>
+    <div class="ban-actions">
+      <a href="https://t.me/QL_Support" target="_blank" class="ban-btn">
+        💬 تواصل مع الدعم | Contact Support
+      </a>
+      <a href="https://wa.me/message/P6BBPSDL2CC4D1" target="_blank" class="ban-btn secondary">
+        💬 WhatsApp
+      </a>
+    </div>
+    <div class="ban-footer">
+      QL Trading &copy; 2025 — All rights reserved
+    </div>
+  </div>
+</div>
+
+<!-- Welcome Splash Screen -->
+<div id="splash" class="splash">
+  <div class="splash-content">
+    <!-- Logo with Glow -->
+    <div class="splash-logo-container">
+      <div class="splash-glow"></div>
+      <img src="./logo.png" alt="QL" class="splash-logo" onerror="this.style.display='none'">
+    </div>
+    
+    <!-- Brand Name -->
+    <h1 class="splash-brand">QL Trading</h1>
+    <p class="splash-tagline">Smart AI Trading Platform</p>
+    
+    <!-- Features Icons -->
+    <div class="splash-features">
+      <div class="splash-feature">
+        <span class="splash-icon">🔥</span>
+        <span>تداول ذكي</span>
+      </div>
+      <div class="splash-feature">
+        <span class="splash-icon">💎</span>
+        <span>سحب سريع</span>
+      </div>
+      <div class="splash-feature">
+        <span class="splash-icon">🏆</span>
+        <span>آمن 100%</span>
+      </div>
+    </div>
+    
+    <!-- Loading -->
+    <div class="splash-loader">
+      <div class="splash-loader-bar"></div>
+    </div>
+  </div>
+</div>
+
+
+  <!-- Subscription Gate -->
+  <div id="gate" class="gate">
+    <video class="bg" src="./bg.mp4" autoplay muted loop playsinline></video>
+    <div class="glass card gate-card">
+      <div class="g-title" data-i18n="gateTitle">QL Trading — Access</div>
+      <div class="g-sub" data-i18n="gateSub">Enter your subscription key to unlock your wallet</div>
+      <input id="g-name" class="input" placeholder="Name / الاسم"/>
+      <input id="g-email" class="input" placeholder="Email / الايميل"/>
+      <input id="g-key" class="input" placeholder="Enter key / ادخل مفتاح الاشتراك"/>
+      <div class="row">
+        <button id="g-activate" class="btn" data-i18n="confirm">Confirm</button>
+        <a id="g-buy" class="btn ghost" href="https://t.me/qlsupport" target="_blank" data-i18n="buyKey">Buy a key</a>
+      </div>
+      <div id="g-toast" class="toast"></div>
+    </div>
+  </div>
+
+  <!-- Wallet -->
+  <div id="app" class="safe hidden">
+    <header class="top glass">
+      <div class="t-row">
+        <h1 class="brand">QL Wallet</h1>
+        <div class="actions">
+          <button id="btnSettings" class="i-btn" title="Settings">⚙</button>
+          <button id="btnLang" class="i-btn" title="Languages">🌍</button>
+        </div>
+      </div>
+      <nav class="seg glass">
+        <button class="seg-btn active" data-tab="wallet" data-i18n="tabWallet">Home</button>
+        <button class="seg-btn" data-tab="stats" data-i18n="tabStats">Statistics</button>
+        <button class="seg-btn" data-tab="trades" data-i18n="tabTrades">Trades</button>
+        <button class="seg-btn" data-tab="withdraw" data-i18n="tabWithdraw">Withdraw</button>
+        <button class="seg-btn" data-tab="requests" data-i18n="tabRequests">Requests</button>
+        <button class="seg-btn" data-tab="invite" data-i18n="tabInvite">Invite</button>
+        <button class="seg-btn" data-tab="support" data-i18n="tabSupport">Support</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Wallet Tab -->
+      <section id="tab-wallet" class="tab show">
+        <div class="balance glass neon">
+          <div class="badge" id="userRankBadge">👤 Member</div>
+          <div class="b-row">
+            <div id="balance" class="b-val">$0.00</div>
+            <div id="ticker" class="pnl">+0.00</div>
+          </div>
+          <div id="tradeBadge" class="muted" data-i18n="noOpenTrade">No open trade</div>
+          <div class="chart" id="balanceChart">
+            <svg viewBox="0 0 100 40" preserveAspectRatio="none">
+              <defs>
+                <!-- Gradient for profit (green) -->
+                <linearGradient id="chartGradientProfit" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:#00d68f;stop-opacity:0.8" />
+                  <stop offset="50%" style="stop-color:#00ffaa;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#00d68f;stop-opacity:0.9" />
+                </linearGradient>
+                <linearGradient id="chartFillProfit" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" style="stop-color:#00d68f;stop-opacity:0.5" />
+                  <stop offset="100%" style="stop-color:#00d68f;stop-opacity:0" />
+                </linearGradient>
+                <!-- Gradient for loss (red) -->
+                <linearGradient id="chartGradientLoss" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:#ff3b63;stop-opacity:0.8" />
+                  <stop offset="50%" style="stop-color:#ff6b8a;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#ff3b63;stop-opacity:0.9" />
+                </linearGradient>
+                <linearGradient id="chartFillLoss" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" style="stop-color:#ff3b63;stop-opacity:0.5" />
+                  <stop offset="100%" style="stop-color:#ff3b63;stop-opacity:0" />
+                </linearGradient>
+                <!-- Gradient for neutral (gold) -->
+                <linearGradient id="chartGradientNeutral" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:#B8860B;stop-opacity:0.8" />
+                  <stop offset="50%" style="stop-color:#FFD700;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#B8860B;stop-opacity:0.9" />
+                </linearGradient>
+                <linearGradient id="chartFillNeutral" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" style="stop-color:#FFD700;stop-opacity:0.3" />
+                  <stop offset="100%" style="stop-color:#FFD700;stop-opacity:0" />
+                </linearGradient>
+              </defs>
+              <path class="chart-fill" id="chartFillPath" d="M0,30 Q15,28 25,25 T50,20 T75,15 T100,12 L100,40 L0,40 Z"/>
+              <path id="chartPath" d="M0,30 Q15,28 25,25 T50,20 T75,15 T100,12"/>
+            </svg>
+          </div>
+
+          <div class="quick">
+            <button class="qa" id="goWithdraw">⬇<small data-i18n="withdraw">Withdraw</small></button>
+            <button class="qa" id="goStats">📈<small data-i18n="stats">Stats</small></button>
+            <button class="qa" id="goSupport">💬<small data-i18n="support">Support</small></button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat glass"><div data-i18n="day">Day</div><b id="pnlDay">$0.00</b></div>
+          <div class="stat glass"><div data-i18n="month">Month</div><b id="pnlMonth">$0.00</b></div>
+          <div class="stat glass"><div data-i18n="subLeft">Subscription</div><b id="subLeft">—</b></div>
+        </div>
+
+        <div class="home-lower">
+          <div class="card glass compact">
+            <div class="c-title">
+              <span data-i18n="live">Live feed</span>
+              <span class="badge" data-i18n="liveSub">QL Trading feed</span>
+            </div>
+            <div id="feed" class="feed"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Statistics -->
+      <section id="tab-stats" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="performance">Performance</div>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-label" data-i18n="today">Today</div>
+              <div class="stat-val" id="statToday">$0.00</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label" data-i18n="thisMonth">This Month</div>
+              <div class="stat-val" id="statMonth">$0.00</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label" data-i18n="allTime">All Time</div>
+              <div class="stat-val" id="statAll">$0.00</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label" data-i18n="totalTrades">Total Trades</div>
+              <div class="stat-val" id="statCount">0</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card glass" style="margin-top:12px">
+          <div class="c-title" data-i18n="tradeHistory">Trade History</div>
+          <div id="historyList" class="ops"></div>
+        </div>
+      </section>
+
+      <!-- Trades -->
+      <section id="tab-trades" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="myTrades">My Trades</div>
+          <div id="tradesList" class="ops"></div>
+          <div class="row">
+            <input id="sl" class="input" placeholder="Stop-Loss / وقف الخسارة"/>
+            <input id="tp" class="input" placeholder="Take-Profit / جني الربح"/>
+            <button id="saveSLTP" class="btn" data-i18n="save">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Withdraw -->
+      <section id="tab-withdraw" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="withdrawCrypto">Withdraw (Crypto only)</div>
+          <button id="pickMethod" class="btn">Method: <b id="methodLabel">USDT (TRC20)</b></button>
+          <div class="withdraw-form">
+            <input id="withdrawAddr" class="input" placeholder="Wallet Address / عنوان المحفظة"/>
+            <input id="amount" type="number" class="input" placeholder="Amount / المبلغ"/>
+            <button id="reqWithdraw" class="btn" data-i18n="request">Request</button>
+          </div>
+          <small class="muted">* Enter your wallet address and amount to request withdrawal</small>
+          <div class="card glass" style="margin-top:10px">
+            <div class="c-title" data-i18n="deposit">Deposit</div>
+            <button id="whatsapp" class="btn ghost">WhatsApp</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Withdrawal History / سجل السحب -->
+      <section id="tab-requests" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="withdrawalHistory">Withdrawal History</div>
+          <div class="withdrawal-stats">
+            <div class="stat-item">
+              <span class="stat-label" data-i18n="pendingReview">Under Review</span>
+              <span class="stat-value" id="pendingCount">0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label" data-i18n="paid">Paid</span>
+              <span class="stat-value success" id="approvedCount">0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label" data-i18n="cancelledRejected">Cancelled/Rejected</span>
+              <span class="stat-value danger" id="rejectedCount">0</span>
+            </div>
+          </div>
+          <div id="reqList" class="ops withdrawal-list"></div>
+        </div>
+      </section>
+
+      <!-- Invite / Referral -->
+      <section id="tab-invite" class="tab">
+        <div class="card glass">
+          <div class="c-title">🤝 <span data-i18n="inviteTitle">Invite Friends</span></div>
+          <p class="muted" style="margin-bottom:12px;" data-i18n="inviteSub">Share your link and earn rewards when your friends deposit!</p>
+          <div id="referralLinkBox" style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2);border-radius:12px;padding:14px;margin-bottom:14px;">
+            <div style="font-size:11px;color:#888;margin-bottom:6px;" data-i18n="yourInviteLink">Your invite link:</div>
+            <div id="referralLink" style="font-size:13px;color:#FFD700;word-break:break-all;font-family:monospace;">Loading...</div>
+          </div>
+          <button id="copyRefLinkBtn" style="width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#FFD700,#B8860B);color:#000;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:14px;">🔗 <span data-i18n="copyLink">Copy Link</span></button>
+          <button id="shareRefLinkBtn" style="width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#DAA520,#8B6914);color:#fff;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:16px;">📨 <span data-i18n="share">Share</span></button>
+        </div>
+        <div class="card glass" style="margin-top:12px;">
+          <div class="c-title">🎖️ <span data-i18n="rewards">Rewards</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div style="background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.1);border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:#FFD700;" id="refEarnings">$0</div>
+              <div style="font-size:11px;color:#888;" data-i18n="totalEarnings">Total Earnings</div>
+            </div>
+            <div style="background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.1);border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:#FFD700;" id="refCount">0</div>
+              <div style="font-size:11px;color:#888;" data-i18n="totalInvites">Total Invites</div>
+            </div>
+            <div style="background:rgba(0,214,143,0.06);border:1px solid rgba(0,214,143,0.15);border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:#00d68f;" id="refTradeCommission">$0</div>
+              <div style="font-size:11px;color:#888;" data-i18n="tradeCommission">Trade Commission</div>
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;">
+            <div style="font-size:12px;color:#aaa;margin-bottom:8px;">💫 <span data-i18n="rewardSystem">Reward System</span>:</div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+              <span style="font-size:12px;color:#ccc;" data-i18n="deposit500">Deposit $500+</span>
+              <span style="font-size:12px;color:#FFD700;font-weight:600;" data-i18n="youGet50">+$50 for you</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+              <span style="font-size:12px;color:#ccc;" data-i18n="deposit1000">Deposit $1,000+</span>
+              <span style="font-size:12px;color:#FFD700;font-weight:600;" data-i18n="youGet100">+$100 for you</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;">
+              <span style="font-size:12px;color:#ccc;" data-i18n="tradeProfit">Referral trade profit</span>
+              <span style="font-size:12px;color:#00d68f;font-weight:600;" data-i18n="youGet5pct">+5% commission</span>
+            </div>
+          </div>
+        </div>
+        <div class="card glass" style="margin-top:12px;">
+          <div class="c-title">👥 <span data-i18n="yourReferrals">Your Referrals</span></div>
+          <div id="referralsList" style="font-size:13px;color:#aaa;" data-i18n="noReferralsYet">No referrals yet. Share your link to get started!</div>
+        </div>
+      </section>
+
+      <!-- Support -->
+      <section id="tab-support" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="supportCenter">Support Center</div>
+          <p class="muted">WhatsApp: <a href="https://wa.me/message/P6BBPSDL2CC4D1" target="_blank">Open Chat</a></p>
+          <p class="muted">Telegram: <a href="https://t.me/@qlsupport" target="_blank">@qlsupport</a></p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Withdraw sheet -->
+  <div id="sheet" class="sheet">
+    <div class="handle"></div>
+    <div class="s-title" data-i18n="chooseMethod">Choose withdraw method</div>
+    <button class="s-item" data-method="usdt_trc20">USDT (TRC20)</button>
+    <button class="s-item" data-method="usdt_erc20">USDT (ERC20)</button>
+    <button class="s-item" data-method="btc">Bitcoin (BTC)</button>
+    <button class="s-item" data-method="eth">Ethereum (ETH)</button>
+    <button class="s-cancel" id="sCancel" data-i18n="cancel">Cancel</button>
+  </div>
+
+  <div id="settingsBackdrop" class="settings-backdrop hidden"></div>
+<div id="settingsPanel" class="settings-panel glass hidden">
+  <div class="sp-header">
+    <div class="sp-title" data-i18n="settingsTitle">Account & Settings</div>
+    <button id="spClose" class="i-btn small" aria-label="Close">✕</button>
+  </div>
+  
+  <!-- Profile Section -->
+  <div class="sp-section">
+    <div class="sp-label" data-i18n="profile">Profile</div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="id">ID</div>
+      <div class="sp-value" id="spTgId">—</div>
+    </div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="name">Name</div>
+      <div class="sp-value" id="spName">—</div>
+    </div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="email">Email</div>
+      <div class="sp-value" id="spEmail">—</div>
+    </div>
+  </div>
+  
+  <!-- Broker Section with XM Logo -->
+  <div class="sp-section">
+    <div class="sp-label" data-i18n="broker">Broker Partner</div>
+    <div class="sp-broker">
+      <img src="./xm-logo.png" alt="XM Trading" class="sp-broker-logo">
+      <div class="sp-broker-info">
+        <div class="sp-broker-name">XM Global</div>
+        <div class="sp-broker-badge" data-i18n="xmLinked">✓ Linked</div>
+      </div>
+    </div>
+    <div class="sp-note" data-i18n="xmNote">Your QL Wallet is connected with XM trading infrastructure for seamless trading experience.</div>
+  </div>
+  
+  <!-- Account Status Section -->
+  <div class="sp-section">
+    <div class="sp-label" data-i18n="accountStatus">Account Status</div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="rank">Rank</div>
+      <div class="sp-value" id="spUserRank" style="color: #ffd700;">👤 Member</div>
+    </div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="statusLabel">Status</div>
+      <div class="sp-value" style="color: #00d68f;" data-i18n="active">✓ Active</div>
+    </div>
+    <div class="sp-row">
+      <div class="sp-key" data-i18n="daysOnPlatform">Days on Platform</div>
+      <div class="sp-value" id="spDaysOnPlatform" style="color: #FFD700;">0</div>
+    </div>
+  </div>
+
+  <!-- Country/Flag section removed -->
+  
+  <!-- App Info -->
+  <div class="sp-section" style="background: transparent; border: none; padding: 8px 0;">
+    <div style="text-align: center; font-size: 11px; color: var(--muted);">
+      QL Trading AI v3.0<br>
+      Powered by XM Trading Infrastructure
+    </div>
+  </div>
+</div>
+  <audio id="sndNotify" src="./notify.mp3" preload="auto"></audio>
+
+  <!-- Reward Box Overlay -->
+  <div id="rewardOverlay" class="reward-overlay hidden">
+    <div class="reward-particles" id="rewardParticles"></div>
+    <div class="reward-box-container" id="rewardBoxContainer">
+      <!-- Unopened State -->
+      <div class="reward-box-unopened" id="rewardBoxUnopened">
+        <div class="reward-glow"></div>
+        <div class="reward-box">
+          <div class="reward-box-lid">
+            <div class="reward-ribbon"></div>
+          </div>
+          <div class="reward-box-body">
+            <div class="reward-question">?</div>
+          </div>
+        </div>
+        <p class="reward-tap-text" data-i18n="rewardTap"></p>
+      </div>
+      <!-- Opened State -->
+      <div class="reward-box-opened hidden" id="rewardBoxOpened">
+        <div class="reward-coins" id="rewardCoins"></div>
+        <div class="reward-amount-display">
+          <span class="reward-plus">+</span>
+          <span class="reward-amount" id="rewardAmountText">$0.00</span>
+        </div>
+        <p class="reward-congrats" id="rewardCongratsText"></p>
+        <button class="reward-collect-btn" id="rewardCollectBtn" data-i18n="rewardCollect"></button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

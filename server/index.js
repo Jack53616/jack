@@ -1,0 +1,377 @@
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+import { securityHeaders, apiLimiter, adminLimiter } from "./config/security.js";
+import pool from "./config/db.js";
+import logger from "./config/logger.js";
+
+// Routes
+import authRoutes from "./routes/auth.routes.js";
+import walletRoutes from "./routes/wallet.routes.js";
+import tradesRoutes from "./routes/trades.routes.js";
+import userRoutes from "./routes/user.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import marketsRoutes from "./routes/markets.routes.js";
+import analyticsRoutes from "./routes/analytics.routes.js";
+import leaderboardRoutes from "./routes/leaderboard.routes.js";
+import supervisorRoutes from "./routes/supervisor.routes.js";
+import agentRoutes from "./routes/agent.routes.js";
+
+// Bot
+import bot from "./bot/bot.js";
+
+// Services
+import { startTradingEngine } from "./services/tradingEngine.js";
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+// CRITICAL: Enable trust proxy for Render
+app.set('trust proxy', 1);
+
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(securityHeaders);
+
+// Protect admin.html: serve with no-cache headers to prevent browser/proxy caching
+app.get("/admin.html", (req, res) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "X-Robots-Tag": "noindex, nofollow",
+  });
+  res.sendFile(path.join(__dirname, "../client/admin.html"));
+});
+
+// Serve static files
+app.use(express.static(path.join(__dirname, "../client")));
+app.use("/public", express.static(path.join(__dirname, "../public")));
+
+// Health check (no rate limit)
+app.get("/health", (req, res) => {
+  res.json({ ok: true, status: "running", timestamp: new Date().toISOString() });
+});
+
+// Maintenance status check (supports whitelist bypass)
+app.get("/api/settings/maintenance", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
+    const maintenance = result.rows.length > 0 && result.rows[0].value === 'true';
+    
+    // If maintenance is on, check if user is whitelisted
+    if (maintenance && req.query.tg_id) {
+      const wlResult = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_whitelist'");
+      if (wlResult.rows.length > 0) {
+        const whitelist = (wlResult.rows[0].value || '').split(',').map(s => s.trim());
+        if (whitelist.includes(String(req.query.tg_id))) {
+          return res.json({ ok: true, maintenance: false, whitelisted: true });
+        }
+      }
+    }
+    
+    res.json({ ok: true, maintenance });
+  } catch (error) {
+    res.json({ ok: true, maintenance: false });
+  }
+});
+
+// Keep-alive endpoint for Render (prevents sleeping)
+app.get("/ping", (req, res) => {
+  res.json({ ok: true, pong: Date.now() });
+});
+
+// API Routes (with rate limiting)
+app.use("/api", apiLimiter);
+app.use("/api", authRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/trades", tradesRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/admin", adminLimiter);
+app.use("/api/admin", adminRoutes);
+app.use("/api/markets", marketsRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
+app.use("/api/supervisor", supervisorRoutes);
+app.use("/api/agent", agentRoutes);
+
+// ===== Session Management API =====
+// Check if session is still valid
+app.get("/api/session/validate", async (req, res) => {
+  try {
+    const tgId = req.query.tg_id;
+    const token = req.query.token;
+    if (!tgId) return res.json({ ok: true, valid: true }); // no tg_id = skip check
+    
+    const result = await pool.query("SELECT session_token FROM users WHERE tg_id = $1", [tgId]);
+    if (result.rows.length === 0) return res.json({ ok: true, valid: true });
+    
+    const user = result.rows[0];
+    // If user has a session_token and it doesn't match, session is invalid
+    if (user.session_token && token && user.session_token !== token) {
+      return res.json({ ok: true, valid: false, reason: 'session_expired' });
+    }
+    
+    res.json({ ok: true, valid: true });
+  } catch (error) {
+    res.json({ ok: true, valid: true }); // fail open
+  }
+});
+
+// ===== Reward System API =====
+// Check if there's an active reward for user (global or personal)
+app.get("/api/reward/check", async (req, res) => {
+  try {
+    const tgId = req.query.tg_id;
+    if (!tgId) return res.json({ ok: false, error: 'Missing tg_id' });
+
+    // 1. Check personal reward first (higher priority)
+    const personalResult = await pool.query("SELECT value FROM settings WHERE key = $1", [`personal_reward_${tgId}`]);
+    if (personalResult.rows.length > 0) {
+      const pReward = JSON.parse(personalResult.rows[0].value);
+      if (pReward.active && (!pReward.claimed || !pReward.claimed.includes(String(tgId)))) {
+        return res.json({ ok: true, hasReward: true, rewardId: pReward.id, amount: pReward.perUser, isPersonal: true });
+      }
+    }
+
+    // 2. Check global reward
+    const result = await pool.query("SELECT value FROM settings WHERE key = 'active_reward'");
+    if (result.rows.length === 0) return res.json({ ok: true, hasReward: false });
+
+    const reward = JSON.parse(result.rows[0].value);
+    if (!reward.active) return res.json({ ok: true, hasReward: false });
+
+    // Check if user already claimed
+    if (reward.claimed && reward.claimed.includes(String(tgId))) {
+      return res.json({ ok: true, hasReward: false, alreadyClaimed: true });
+    }
+
+    res.json({ ok: true, hasReward: true, rewardId: reward.id, amount: reward.perUser, isPersonal: false });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// Claim reward (supports both global and personal rewards)
+app.post("/api/reward/claim", async (req, res) => {
+  try {
+    const { tg_id, isPersonal } = req.body;
+    if (!tg_id) return res.json({ ok: false, error: 'Missing tg_id' });
+
+    let reward = null;
+    let settingsKey = 'active_reward';
+
+    // Check personal reward first
+    const personalResult = await pool.query("SELECT value FROM settings WHERE key = $1", [`personal_reward_${tg_id}`]);
+    if (personalResult.rows.length > 0) {
+      const pReward = JSON.parse(personalResult.rows[0].value);
+      if (pReward.active && (!pReward.claimed || !pReward.claimed.includes(String(tg_id)))) {
+        reward = pReward;
+        settingsKey = `personal_reward_${tg_id}`;
+      }
+    }
+
+    // If no personal reward, check global
+    if (!reward) {
+      const result = await pool.query("SELECT value FROM settings WHERE key = 'active_reward'");
+      if (result.rows.length === 0) return res.json({ ok: false, error: 'No active reward' });
+      reward = JSON.parse(result.rows[0].value);
+      settingsKey = 'active_reward';
+    }
+
+    if (!reward || !reward.active) return res.json({ ok: false, error: 'Reward expired' });
+
+    // Check if already claimed
+    if (reward.claimed && reward.claimed.includes(String(tg_id))) {
+      return res.json({ ok: false, error: 'Already claimed' });
+    }
+
+    // Add balance to user
+    const userResult = await pool.query("SELECT id, balance FROM users WHERE tg_id = $1", [tg_id]);
+    if (userResult.rows.length === 0) return res.json({ ok: false, error: 'User not found' });
+
+    const newBalance = Number(userResult.rows[0].balance) + reward.perUser;
+    await pool.query("UPDATE users SET balance = $1 WHERE tg_id = $2", [newBalance, tg_id]);
+
+    // Mark as claimed
+    if (!reward.claimed) reward.claimed = [];
+    reward.claimed.push(String(tg_id));
+    await pool.query("UPDATE settings SET value = $1, updated_at = NOW() WHERE key = $2", [JSON.stringify(reward), settingsKey]);
+
+    res.json({ ok: true, amount: reward.perUser, newBalance });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// Get user statistics (Direct endpoint for frontend)
+app.get("/api/stats/:tg_id", async (req, res) => {
+  try {
+    const user = await pool.query("SELECT id FROM users WHERE tg_id = $1", [req.params.tg_id]);
+    if (user.rows.length === 0) return res.json({ ok: false, error: "User not found" });
+    
+    const userId = user.rows[0].id;
+    
+    // Get user manual stats (only for all-time, not daily/monthly)
+    const userStats = await pool.query("SELECT wins, losses FROM users WHERE id = $1", [userId]);
+    const manualWins = Number(userStats.rows[0].wins || 0);
+    const manualLosses = Number(userStats.rows[0].losses || 0);
+
+    // Calculate daily PnL (today only - from trades_history)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const dailyStats = await pool.query(`
+      SELECT 
+        COALESCE(SUM(pnl), 0) as net_pnl,
+        COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0) as wins,
+        COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) as losses,
+        COUNT(*) as trades_count
+      FROM trades_history 
+      WHERE user_id = $1 AND DATE(closed_at) = CURRENT_DATE
+    `, [userId]);
+    
+    // Calculate monthly PnL (this month only - from trades_history)
+    const monthlyStats = await pool.query(`
+      SELECT 
+        COALESCE(SUM(pnl), 0) as net_pnl,
+        COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0) as wins,
+        COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) as losses,
+        COUNT(*) as trades_count
+      FROM trades_history 
+      WHERE user_id = $1 
+        AND EXTRACT(MONTH FROM closed_at) = EXTRACT(MONTH FROM CURRENT_DATE)
+        AND EXTRACT(YEAR FROM closed_at) = EXTRACT(YEAR FROM CURRENT_DATE)
+    `, [userId]);
+    
+    // Get all time stats from trades_history (Real trades only)
+    const allTimeStats = await pool.query(`
+      SELECT 
+        COALESCE(SUM(pnl), 0) as net_pnl,
+        COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0) as wins,
+        COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) as losses,
+        COUNT(*) as total_trades
+      FROM trades_history 
+      WHERE user_id = $1
+    `, [userId]);
+
+    // Get recent history
+    const history = await pool.query(`
+      SELECT * FROM trades_history 
+      WHERE user_id = $1 
+      ORDER BY closed_at DESC 
+      LIMIT 20
+    `, [userId]);
+    
+    // Calculate totals - Manual stats are added to all-time only
+    const dailyNet = Number(dailyStats.rows[0].net_pnl);
+    const monthlyNet = Number(monthlyStats.rows[0].net_pnl);
+    const allTimeNet = Number(allTimeStats.rows[0].net_pnl) + manualWins - manualLosses;
+    
+    res.json({
+      ok: true,
+      daily: {
+        wins: Number(dailyStats.rows[0].wins),
+        losses: Number(dailyStats.rows[0].losses),
+        net: dailyNet,
+        count: Number(dailyStats.rows[0].trades_count)
+      },
+      monthly: {
+        wins: Number(monthlyStats.rows[0].wins),
+        losses: Number(monthlyStats.rows[0].losses),
+        net: monthlyNet,
+        count: Number(monthlyStats.rows[0].trades_count)
+      },
+      allTime: {
+        wins: Number(allTimeStats.rows[0].wins) + manualWins,
+        losses: Number(allTimeStats.rows[0].losses) + manualLosses,
+        net: allTimeNet,
+        count: Number(allTimeStats.rows[0].total_trades)
+      },
+      history: history.rows
+    });
+    
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Telegram Webhook
+app.post(`/webhook/${process.env.BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Serve frontend
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../client/index.html"));
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  logger.error(`Server error: ${err.message}`, { stack: err.stack });
+  res.status(500).json({ ok: false, error: "Internal server error" });
+});
+
+// Start server
+app.listen(PORT, async () => {
+  logger.info(`QL Trading AI Server started on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || "development"}`);
+  
+  // Set webhook (disable polling to avoid conflicts)
+  if (process.env.WEBHOOK_URL && process.env.BOT_TOKEN) {
+    const webhookUrl = `${process.env.WEBHOOK_URL}/webhook/${process.env.BOT_TOKEN}`;
+    try {
+      // Delete any existing webhook first
+      await bot.deleteWebHook({ drop_pending_updates: true });
+      logger.info("Cleared old webhook");
+      await bot.setWebHook(webhookUrl);
+      logger.info(`Telegram webhook set to: ${webhookUrl}`);
+    } catch (error) {
+      logger.error(`Failed to set webhook: ${error.message}`);
+    }
+  }
+
+  // Start trading engine
+  startTradingEngine();
+  logger.info("Trading engine started");
+  
+  // Start keep-alive service for Render
+  startKeepAlive();
+});
+
+// Keep-alive service to prevent Render from sleeping
+function startKeepAlive() {
+  if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_URL) {
+    setInterval(async () => {
+      try {
+        const response = await fetch(`${process.env.WEBHOOK_URL}/ping`);
+        if (response.ok) {
+          console.log('✅ Keep-alive ping successful');
+        }
+      } catch (error) {
+        console.log('⚠️ Keep-alive ping failed:', error.message);
+      }
+    }, 14 * 60 * 1000); // Ping every 14 minutes (Render free tier sleeps after 15 min)
+    
+    console.log('🔄 Keep-alive service started (14 min intervals)');
+  }
+}
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully...");
+  pool.end(() => {
+    console.log("Database pool closed");
+    process.exit(0);
+  });
+});

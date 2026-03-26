@@ -1,0 +1,1467 @@
+// QL Trading AI v3.0 — Telegram Bot (Enhanced with Referral, Ban, Mass Trades)
+import dotenv from "dotenv";
+import TelegramBot from "node-telegram-bot-api";
+import path from "path";
+import { fileURLToPath } from "url";
+import crypto from "crypto";
+import { query as dbQuery } from "../config/db.js";
+
+// Explicitly load .env from project root
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+console.log("🚀 Telegram bot initialized via webhook mode");
+
+const { BOT_TOKEN, ADMIN_ID } = process.env;
+
+if (!BOT_TOKEN) { console.error("BOT_TOKEN missing"); process.exit(1); }
+
+const bot = new TelegramBot(BOT_TOKEN);
+
+const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g;
+const VALID_KEY_CHARS = /^[A-Za-z0-9._\-+=]+$/;
+const KEY_FRAGMENT_RE = /[A-Za-z0-9][A-Za-z0-9._\-+=]{3,}[A-Za-z0-9=]?/g;
+const BANNED_KEY_WORDS = new Set([
+  "key", "code", "subscription", "subs", "sub", "token", "pass", "password",
+  "link", "your", "this", "that", "here", "is", "for", "the", "my",
+  "http", "https", "www", "click", "press", "bot", "created", "generated"
+]);
+
+const scoreToken = (token) => {
+  const lower = token.toLowerCase();
+  const length = token.length;
+  const digitCount = (token.match(/\d/g) || []).length;
+  const letterCount = (token.match(/[A-Za-z]/g) || []).length;
+
+  let score = 0;
+  if (digitCount) score += 6;
+  if (/[-_]/.test(token)) score += 2;
+  if (/[+=]/.test(token)) score += 1;
+  if (digitCount && letterCount) score += 2;
+  if (length >= 28) score += 6;
+  else if (length >= 20) score += 5;
+  else if (length >= 16) score += 4;
+  else if (length >= 12) score += 3;
+  else if (length >= 8) score += 2;
+  else if (length >= 6) score += 1;
+
+  const digitRatio = length ? digitCount / length : 0;
+  if (digitRatio >= 0.5) score += 4;
+  else if (digitRatio >= 0.35) score += 2;
+
+  const upperCount = (token.match(/[A-Z]/g) || []).length;
+  if (upperCount >= 4 && letterCount) score += 1;
+
+  if (length > 32) score -= Math.min(length - 32, 12);
+  if (length > 64) score -= Math.min(length - 64, 12);
+
+  if (BANNED_KEY_WORDS.has(lower)) score -= 12;
+  if (/^(key|code|token|pass)/.test(lower)) score -= 8;
+  if (lower.includes("created") || lower.includes("generated")) score -= 6;
+  if (lower.includes("http") || lower.includes("www") || lower.includes("tme")) score -= 15;
+  if (lower.includes("telegram")) score -= 8;
+  if (lower.includes("start=")) score -= 6;
+
+  return score;
+};
+
+const sanitizeToken = (candidate = "") => {
+  if (!candidate) return "";
+  let token = candidate
+    .replace(INVISIBLE_CHARS, "")
+    .trim();
+  if (!token) return "";
+  token = token.replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9=]+$/, "");
+  if (!token) return "";
+  if (!VALID_KEY_CHARS.test(token)) {
+    token = token.replace(/[^A-Za-z0-9._\-+=]+/g, "");
+  }
+  if (token.length < 4) return "";
+  return token;
+};
+
+const sanitizedCollapsed = (text = "") => {
+  if (!text) return "";
+  const collapsed = text.replace(/[^A-Za-z0-9._\-+=]+/g, "");
+  return collapsed.length >= 4 ? collapsed : "";
+};
+
+const extractKeyCandidates = (raw = "") => {
+  if (!raw) return [];
+  const normalized = raw.normalize("NFKC").replace(INVISIBLE_CHARS, " ").trim();
+  if (!normalized) return [];
+  const seen = new Map();
+  const candidates = [];
+  const sanitizedParts = [];
+
+  const register = (token, boost = 0) => {
+    const sanitized = sanitizeToken(token);
+    if (!sanitized) return;
+    const key = sanitized.toLowerCase();
+    if (seen.has(key)) return;
+    const score = scoreToken(sanitized) + boost;
+    seen.set(key, score);
+    candidates.push({ token: sanitized, score, idx: candidates.length });
+  };
+
+  const pushMatches = (text, boost = 0) => {
+    if (!text) return;
+    const matches = text.match(KEY_FRAGMENT_RE);
+    if (matches) matches.forEach(match => register(match, boost));
+  };
+
+  pushMatches(normalized, 1);
+
+  const startMatch = normalized.match(/start=([A-Za-z0-9._\-+=]+)/i);
+  if (startMatch) register(startMatch[1], 6);
+
+  normalized
+    .split(/[\s|,;:/\\]+/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .forEach(part => {
+      const sanitizedPart = sanitizeToken(part);
+      if (sanitizedPart) {
+        sanitizedParts.push({
+          value: sanitizedPart,
+          hasDigits: /\d/.test(sanitizedPart),
+          hasLetters: /[A-Za-z]/.test(sanitizedPart)
+        });
+      }
+      const eqIndex = part.indexOf("=");
+      if (eqIndex >= 0 && eqIndex < part.length - 1) {
+        register(part.slice(eqIndex + 1), 5);
+      }
+      register(part);
+      pushMatches(part);
+    });
+
+  for (let i = 0; i < sanitizedParts.length - 1; i++) {
+    const first = sanitizedParts[i];
+    const second = sanitizedParts[i + 1];
+    const joined = first.value + second.value;
+    if (joined.length >= 6 && (first.hasDigits || second.hasDigits)) {
+      register(joined, first.hasDigits && second.hasDigits ? 6 : 5);
+    }
+  }
+
+  for (let i = 0; i < sanitizedParts.length - 2; i++) {
+    const a = sanitizedParts[i];
+    const b = sanitizedParts[i + 1];
+    const c = sanitizedParts[i + 2];
+    const joined = a.value + b.value + c.value;
+    if (joined.length >= 8 && (a.hasDigits || b.hasDigits || c.hasDigits)) {
+      register(joined, 4);
+    }
+  }
+
+  const collapsed = sanitizedCollapsed(normalized);
+  if (collapsed) {
+    const lowerCollapsed = collapsed.toLowerCase();
+    const startsWithMeta = /^(key|code|token|pass)/.test(lowerCollapsed);
+    register(collapsed, startsWithMeta ? -2 : 1);
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.token.length !== a.token.length) return b.token.length - a.token.length;
+    return a.idx - b.idx;
+  });
+
+  return candidates.map(c => c.token);
+};
+
+const cleanKey = (key = "") => extractKeyCandidates(key)[0] || "";
+
+const q = (sql, params = []) => dbQuery(sql, params);
+const isAdmin = (msg) => Number(msg?.from?.id) === Number(ADMIN_ID);
+
+// ===== Generate unique referral code =====
+function generateReferralCode() {
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
+// ===== Process referral bonus (bot-side) =====
+async function processReferralBonusBot(tgId, depositAmount) {
+  try {
+    const referralResult = await q(
+      "SELECT * FROM referrals WHERE referred_tg_id = $1 AND status = 'pending'",
+      [tgId]
+    );
+    if (referralResult.rows.length === 0) return;
+    const referral = referralResult.rows[0];
+
+    let bonusAmount = 0;
+    if (depositAmount >= 1000) bonusAmount = 100;
+    else if (depositAmount >= 500) bonusAmount = 50;
+    if (bonusAmount <= 0) return;
+
+    await q(
+      "UPDATE referrals SET bonus_amount = $1, deposit_amount = $2, status = 'credited', credited_at = NOW() WHERE id = $3",
+      [bonusAmount, depositAmount, referral.id]
+    );
+
+    const referrerResult = await q("SELECT * FROM users WHERE tg_id = $1", [referral.referrer_tg_id]);
+    if (referrerResult.rows.length > 0) {
+      const referrer = referrerResult.rows[0];
+      await q("UPDATE users SET balance = balance + $1, referral_earnings = COALESCE(referral_earnings, 0) + $1 WHERE id = $2",
+        [bonusAmount, referrer.id]);
+      await q(
+        "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'referral', $2, $3)",
+        [referrer.id, bonusAmount, `Referral bonus: user ${tgId} deposited $${depositAmount}`]
+      );
+      try {
+        await bot.sendMessage(Number(referral.referrer_tg_id), `🏆 *مكافأة الدعوة!*\n\n🎁 حصلت على *$${bonusAmount}* كمكافأة دعوة!\n🤝 صديقك قام بإيداع $${depositAmount}\n\n💎 تم إضافة المبلغ لرصيدك تلقائياً.`, { parse_mode: "Markdown" });
+      } catch (err) { /* ignore */ }
+    }
+  } catch (error) {
+    console.error("Bot referral bonus error:", error.message);
+  }
+}
+
+// ===== /start with referral support =====
+bot.onText(/^\/start(.*)$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const name = msg.from.first_name;
+  const tgId = msg.from.id;
+  const tgUsername = msg.from.username || null;
+  const param = (match[1] || '').trim();
+
+  // Save/update tg_username whenever user starts the bot
+  try {
+    await q(
+      `UPDATE users SET tg_username = $1 WHERE tg_id = $2`,
+      [tgUsername, tgId]
+    );
+  } catch(e) { /* ignore */ }
+
+  // Check if user is banned
+  try {
+    const userCheck = await q(`SELECT * FROM users WHERE tg_id=$1`, [tgId]);
+    if (userCheck.rows.length > 0 && userCheck.rows[0].is_banned) {
+      const banReason = userCheck.rows[0].ban_reason || 'مخالفة شروط الاستخدام';
+      return bot.sendMessage(chatId, `⛔ *حسابك محظور*
+
+━━━━━━━━━━━━━━━━━━━━
+❌ *تم حظر حسابك من استخدام المنصة*
+
+🔸 *سبب الحظر:*
+${banReason}
+
+🔸 *تاريخ الحظر:* ${userCheck.rows[0].banned_at ? new Date(userCheck.rows[0].banned_at).toLocaleDateString('ar') : 'غير محدد'}
+
+━━━━━━━━━━━━━━━━━━━━
+
+💬 إذا كنت تعتقد أن هذا خطأ، يرجى التواصل مع فريق الدعم:
+
+⛔ *Your account has been suspended*
+Reason: ${banReason}
+
+Contact support if you believe this is an error.`, {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "💬 تواصل مع الدعم | Contact Support", url: "https://t.me/QL_Support" }]
+          ]
+        }
+      });
+    }
+  } catch(e) { /* ignore */ }
+
+  // Handle referral parameter (ref_XXXXXXXX)
+  if (param.startsWith(' ref_') || param.startsWith('ref_')) {
+    const refCode = param.replace(/^\s*/, '').replace('ref_', '');
+    if (refCode) {
+      try {
+        // Find referrer by referral code
+        const referrer = await q(`SELECT * FROM users WHERE referral_code=$1`, [refCode]);
+        if (referrer.rows.length > 0) {
+          const referrerUser = referrer.rows[0];
+          // Check if this user is already registered
+          const existingUser = await q(`SELECT * FROM users WHERE tg_id=$1`, [tgId]);
+          if (existingUser.rows.length === 0) {
+            // Store referral info - will be processed when user deposits
+            // We save the referrer tg_id temporarily
+            try {
+              await q(`INSERT INTO referrals (referrer_tg_id, referred_tg_id, status) VALUES ($1, $2, 'pending') ON CONFLICT (referred_tg_id) DO NOTHING`, [referrerUser.tg_id, tgId]);
+            } catch(e) { /* duplicate, ignore */ }
+          }
+        }
+      } catch(e) { console.error("Referral error:", e.message); }
+    }
+  }
+
+  // Normal welcome message - Gold Theme
+  const welcomeCaption = `✦ *Welcome to QL Trading AI, ${name}!* ✦
+
+━━━━━━━━━━━━━━━━━━━━
+
+◆ Your premium trading wallet is ready
+◆ Smart AI bot works 24/7 for you
+◆ Deposit & watch profits grow
+◆ Track everything in your wallet
+
+━━━━━━━━━━━━━━━━━━━━
+
+✦ *أهلاً بك في QL Trading AI* ✦
+
+◆ محفظتك الذكية جاهزة
+◆ بوت ذكي يعمل 24/7 لأجلك
+◆ أودع وراقب أرباحك تنمو
+◆ تابع كل شيء من محفظتك
+
+━━━━━━━━━━━━━━━━━━━━
+
+⬇️ *اضغط لفتح المحفظة | Open Wallet*`;
+
+  const photoUrl = `${process.env.WEBAPP_URL}/public/bot_welcome.jpg`;
+  
+  try {
+    await bot.sendPhoto(chatId, photoUrl, {
+      caption: welcomeCaption,
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
+          [{ text: "◆ الدعم الفني | Support ◆", url: "https://t.me/QL_Support" }]
+        ]
+      }
+    });
+  } catch (e) {
+    bot.sendMessage(chatId, welcomeCaption, {
+      parse_mode: "Markdown",
+      reply_markup: {
+          inline_keyboard: [[{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]]
+      }
+    });
+  }
+});
+
+// ===== Helper: Multilingual rank label =====
+function getRankLabel(rank, lang = 'ar') {
+  const labels = {
+    member:     { ar: 'عضو',       en: 'Member',      tr: 'Üye',          de: 'Mitglied' },
+    agent:      { ar: 'وكيل',      en: 'Agent',       tr: 'Temsilci',     de: 'Agent' },
+    gold_agent: { ar: 'وكيل ذهبي', en: 'Gold Agent',  tr: 'Altın Temsilci', de: 'Gold Agent' },
+    partner:    { ar: 'شريك',      en: 'Partner',     tr: 'Ortak',        de: 'Partner' }
+  };
+  const rankData = labels[rank] || labels.member;
+  return rankData[lang] || rankData.ar;
+}
+
+// ===== أوامر الأدمن =====
+// ===== Admin Panel with Interactive Buttons =====
+bot.onText(/^\/help$/, (msg) => {
+  if (!isAdmin(msg)) return;
+  bot.sendMessage(msg.chat.id, `⚙️ *لوحة التحكم - Admin Dashboard v4.0*\n\nاختر القسم المطلوب:`, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '👥 إدارة المستخدمين', callback_data: 'panel_users' }, { text: '🎖️ الرتب', callback_data: 'panel_ranks' }],
+        [{ text: '📊 التداول', callback_data: 'panel_trades' }, { text: '⛔ الحظر', callback_data: 'panel_ban' }],
+        [{ text: '💰 السحب', callback_data: 'panel_withdraw' }, { text: '📣 التواصل', callback_data: 'panel_comm' }],
+        [{ text: '🎁 المكافآت', callback_data: 'panel_rewards' }, { text: '🔐 الجلسات', callback_data: 'panel_sessions' }],
+        [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }]
+      ]
+    }
+  });
+});
+
+// ===== /setrank <tg_id> <rank> =====
+bot.onText(/^\/setrank\s+(\d+)\s+(\S+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const rank = m[2].toLowerCase();
+  const allowedRanks = ['member', 'agent', 'gold_agent', 'partner'];
+
+  if (!allowedRanks.includes(rank)) {
+    return bot.sendMessage(msg.chat.id, `❌ رتبة غير صحيحة.\nالرتب المتاحة: ${allowedRanks.join(' | ')}`);
+  }
+
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, '❌ المستخدم غير موجود');
+
+  const isAgent = ['agent', 'gold_agent', 'partner'].includes(rank);
+  const oldRank = u.rank || 'member';
+
+  await q(
+    `UPDATE users SET rank=$1, role=$2, is_agent=$3 WHERE tg_id=$4`,
+    [rank, isAgent ? rank : 'user', isAgent, tg]
+  );
+
+  const rankAr = getRankLabel(rank);
+  const oldRankAr = getRankLabel(oldRank);
+
+  bot.sendMessage(msg.chat.id, `✅ تم تغيير رتبة المستخدم\n\n👤 tg_id: ${tg}\n📛 الاسم: ${u.name || u.first_name || '—'}\n🏅 من: ${oldRankAr} ← إلى: ${rankAr}`);
+
+  // Notify user
+  try {
+    await bot.sendMessage(tg, `🏅 *تم تحديث رتبتك*\n\nرتبتك الجديدة: *${rankAr}*`, { parse_mode: 'Markdown' });
+  } catch (e) { /* ignore */ }
+});
+
+// ===== /clearrank <tg_id> =====
+bot.onText(/^\/clearrank\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, '❌ المستخدم غير موجود');
+
+  const oldRank = u.rank || 'member';
+
+  await q(
+    `UPDATE users SET rank='member', role='user', is_agent=FALSE WHERE tg_id=$1`,
+    [tg]
+  );
+
+  bot.sendMessage(msg.chat.id, `✅ تم إرجاع رتبة المستخدم إلى عضو\n\n👤 tg_id: ${tg}\n📛 الاسم: ${u.name || u.first_name || '—'}\n🏅 من: ${getRankLabel(oldRank)} ← إلى: عضو`);
+});
+
+// ===== /userinfo <tg_id> =====
+bot.onText(/^\/userinfo\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, '❌ المستخدم غير موجود');
+
+  const rank = u.rank || 'member';
+  const rankAr = getRankLabel(rank);
+  const balance = Number(u.balance || 0).toFixed(2);
+  const firstDeposit = u.first_deposit_at ? new Date(u.first_deposit_at).toLocaleDateString('ar') : 'لم يودع بعد';
+  const daysSince = u.first_deposit_at
+    ? Math.floor((Date.now() - new Date(u.first_deposit_at)) / 86400000)
+    : null;
+
+  // Fee rate
+  let feeRate = '5%';
+  if (daysSince !== null) {
+    if (daysSince <= 15) feeRate = '25%';
+    else if (daysSince <= 30) feeRate = '15%';
+    else if (daysSince >= 90) feeRate = '3%';
+    else feeRate = '5%';
+  }
+
+  bot.sendMessage(msg.chat.id, `👤 *معلومات المستخدم*\n\n🆔 tg_id: ${tg}\n📛 الاسم: ${u.name || u.first_name || '—'}\n🏅 الرتبة: ${rankAr}\n💰 الرصيد: $${balance}\n📅 أول إيداع: ${firstDeposit}${daysSince !== null ? ` (${daysSince} يوم)` : ''}\n💸 رسوم السحب: ${feeRate}\n✅ الحالة: ${u.is_banned ? '🚫 محظور' : 'نشط'}`, { parse_mode: 'Markdown' });
+});
+
+// إنشاء مفتاح
+bot.onText(/^\/create_key\s+(\S+)(?:\s+(\d+))?$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const key = cleanKey(m[1]); const days = Number(m[2] || 30);
+  if (!key) return bot.sendMessage(msg.chat.id, "❌ Invalid key format");
+  try {
+    await q(`INSERT INTO subscription_keys (key_code, days) VALUES ($1,$2)`, [key, days]);
+    console.log("🧩 New key created:", key, days, "days");
+    bot.sendMessage(msg.chat.id, `✅ Key created: ${key} (${days}d)`);
+  } catch (e) { bot.sendMessage(msg.chat.id, `❌ ${e.message}`); }
+});
+
+// إيداع رصيد (صامت - بدون إشعار)
+bot.onText(/^\/silentadd\s+(\d+)\s+(\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const amount = Number(m[2]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  await q(`UPDATE users SET balance = balance + $1 WHERE id=$2`, [amount, u.id]);
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'admin',$2,'silent admin deposit')`, [u.id, amount]);
+  
+  bot.sendMessage(msg.chat.id, `✅ Silently added $${amount} to tg:${tg}. New Balance: $${Number(u.balance) + amount}`);
+});
+
+// إيداع/خصم رصيد (عادي)
+bot.onText(/^\/addbalance\s+(\d+)\s+(-?\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const amount = Number(m[2]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  await q(`UPDATE users SET balance = balance + $1 WHERE id=$2`, [amount, u.id]);
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'admin',$2,'manual admin op')`, [u.id, amount]);
+  
+  // Process referral bonus for positive deposits
+  if (amount > 0) await processReferralBonusBot(tg, amount);
+  
+  bot.sendMessage(msg.chat.id, `✅ Balance updated for tg:${tg} by ${amount}`);
+  bot.sendMessage(tg, `✦ *تم الإيداع في حسابك* ✦\n\n◆ المبلغ: ${amount>0?'+':'-'}$${Math.abs(amount).toFixed(2)}`, { parse_mode: 'Markdown' }).catch(()=>{});
+});
+
+// حذف رصيد (بدون إشعار)
+bot.onText(/^\/removebalance\s+(\d+)\s+(\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const amount = Number(m[2]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  const currentBalance = Number(u.balance);
+  const actualDeduct = Math.min(amount, currentBalance);
+  
+  if (actualDeduct <= 0) {
+    return bot.sendMessage(msg.chat.id, `⚠️ User balance is already 0 or negative ($${currentBalance}). Cannot deduct.`);
+  }
+
+  await q(`UPDATE users SET balance = GREATEST(0, balance - $1) WHERE id=$2`, [amount, u.id]);
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'admin',$2,'silent balance removal')`, [u.id, -actualDeduct]);
+  
+  bot.sendMessage(msg.chat.id, `✅ Silently removed $${actualDeduct} from tg:${tg}. New Balance: $${currentBalance - actualDeduct}`);
+});
+
+// تصفير الحساب
+bot.onText(/^\/zerobalance\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+
+  const currentBalance = Number(u.balance);
+  await q(`UPDATE users SET balance = 0 WHERE id=$1`, [u.id]);
+  const adjustment = -currentBalance;
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'admin',$2,'force zero balance')`, [u.id, adjustment]);
+
+  bot.sendMessage(msg.chat.id, `✅ Balance reset to $0 for tg:${tg} (Was: $${currentBalance})`);
+});
+
+// إيداع رصيد (نقل حساب)
+bot.onText(/^\/setmoney\s+(\d+)\s+(\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const amount = Number(m[2]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  await q(`UPDATE users SET balance = balance + $1 WHERE id=$2`, [amount, u.id]);
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'admin',$2,'account migration')`, [u.id, amount]);
+  
+  // Process referral bonus for this deposit
+  await processReferralBonusBot(tg, amount);
+  
+  bot.sendMessage(msg.chat.id, `✅ Account migration deposit done for tg:${tg} by ${amount}`);
+  
+  bot.sendMessage(tg, `✅ *Account Linked Successfully*
+Your old account has been successfully linked to your new account.
+💰 *Balance Transferred:* $${amount}
+
+---
+
+✅ *تم ربط الحساب بنجاح*
+تم ربط حسابك القديم بحسابك الجديد بنجاح.
+💰 *الرصيد المحول:* $${amount}`).catch(()=>{});
+});
+
+// فتح صفقة (القديم)
+bot.onText(/^\/open_trade\s+(\d+)\s+(\S+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const symbol = m[2].toUpperCase();
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  const tr = await q(`INSERT INTO trades (user_id, symbol, status) VALUES ($1,$2,'open') RETURNING *`, [u.id, symbol]).then(r => r.rows[0]);
+  bot.sendMessage(msg.chat.id, `✅ Opened trade #${tr.id} on ${symbol} for ${tg}`);
+  bot.sendMessage(tg, `📈 تم فتح صفقة جديدة على ${symbol}.
+يرجى متابعة تفاصيل الصفقة من داخل المحفظة.`).catch(()=>{});
+});
+
+// فتح صفقة مع هدف وتوقيت
+bot.onText(/^\/open\s+(\d+)\s+(\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const hours = Number(m[2]);
+  const target = Number(m[3]);
+  
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  const durationSec = Math.floor(hours * 3600);
+  const symbol = "XAUUSD";
+  const direction = target >= 0 ? "BUY" : "SELL";
+  
+  const tr = await q(
+    `INSERT INTO trades (user_id, symbol, direction, status, target_pnl, duration_seconds, entry_price, current_price, lot_size) 
+     VALUES ($1, $2, $3, 'open', $4, $5, 2650, 2650, 1.0) RETURNING *`,
+    [u.id, symbol, direction, target, durationSec]
+  );
+  
+  bot.sendMessage(msg.chat.id, `✦ *Smart Trade Started*
+
+◆ Trade #${tr.rows[0].id}
+◆ User: ${tg}
+◆ Duration: ${hours}h
+◆ Target: ${target >= 0 ? '+' : ''}$${target}
+◆ Direction: ${direction}
+
+⚠️ _Target PnL is hidden from user_`, { parse_mode: 'Markdown' });
+
+  // Send notification to user - Gold Theme
+  bot.sendMessage(tg, `✦ *تم تفعيل صفقة ذكية جديدة* ✦
+
+━━━━━━━━━━━━━━━━━━━━
+◆ *الرمز:* XAUUSD (الذهب)
+◆ *المدة:* ${hours} ساعة
+◆ *الحالة:* نشطة ومراقبة
+━━━━━━━━━━━━━━━━━━━━
+
+✦ *New Smart Trade Activated* ✦
+◆ *Symbol:* XAUUSD (Gold)
+◆ *Duration:* ${hours} Hours
+◆ *Status:* Active & Monitored`, { parse_mode: "Markdown" }).catch(()=>{});
+});
+
+// تعيين إحصائيات مخصصة
+bot.onText(/\/setstats\s+(\d+)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const wins = Number(m[2]);
+  const losses = Number(m[3]);
+  
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  await q(`UPDATE users SET wins=$1, losses=$2 WHERE id=$3`, [wins, losses, u.id]);
+  
+  bot.sendMessage(msg.chat.id, `✅ Added MANUAL stats for user ${tg}:
+🟢 Extra Wins: +$${wins}
+🔴 Extra Losses: +$${losses}
+
+⚠️ Note: These numbers are ADDED to the real trade history.
+Total displayed = Real Trades + These Numbers.
+Use /resetstats to clear these.`);
+});
+
+// تصفير الإحصائيات اليدوية
+bot.onText(/\/resetstats\s+(\d+)/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  await q(`UPDATE users SET wins=0, losses=0 WHERE id=$1`, [u.id]);
+  
+  bot.sendMessage(msg.chat.id, `✅ Manual stats reset for user ${tg}.
+Now showing only REAL trade history.`);
+});
+
+// إغلاق صفقة
+bot.onText(/^\/close_trade\s+(\d+)\s+(-?\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tradeId = Number(m[1]); const pnl = Number(m[2]);
+  const tr = await q(`SELECT * FROM trades WHERE id=$1`, [tradeId]).then(r => r.rows[0]);
+  if (!tr || tr.status !== "open") return bot.sendMessage(msg.chat.id, "No open trade");
+  await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
+  if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, tr.user_id]);
+  else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), tr.user_id]);
+  await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'close trade')`, [tr.user_id, pnl]);
+  
+  // Save to trades_history
+  const duration = Math.floor((Date.now() - new Date(tr.opened_at).getTime()) / 1000);
+  await q(
+    `INSERT INTO trades_history (user_id, trade_id, symbol, direction, entry_price, exit_price, lot_size, pnl, duration_seconds, opened_at, closed_at, close_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'admin_bot')`,
+    [tr.user_id, tradeId, tr.symbol || 'XAUUSD', tr.direction || 'BUY', tr.entry_price || 0, tr.current_price || 0, tr.lot_size || 0.05, pnl, duration, tr.opened_at]
+  );
+  
+  const tg = await q(`SELECT tg_id, balance FROM users WHERE id=$1`, [tr.user_id]).then(r => r.rows[0]);
+  bot.sendMessage(msg.chat.id, `✅ Closed trade #${tradeId} PnL ${pnl}`);
+  if (tg?.tg_id) bot.sendMessage(Number(tg.tg_id), `✦ *تم إغلاق الصفقة | Trade Closed* ✦\n\n━━━━━━━━━━━━━━━━━━━━\n${pnl >= 0 ? "◆ ربح | Profit" : "◆ خسارة | Loss"}: ${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(2)}\n◆ الرصيد | Balance: $${Number(tg.balance).toFixed(2)}\n━━━━━━━━━━━━━━━━━━━━`, { parse_mode: "Markdown" }).catch(()=>{});
+});
+
+// setdaily
+bot.onText(/^\/setdaily\s+(\d+)\s+(-?\d+(?:\.\d+)?)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const target = Number(m[2]);
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  await q(`INSERT INTO daily_targets (user_id, target, active) VALUES ($1,$2,TRUE)`, [u.id, target]);
+  bot.sendMessage(msg.chat.id, `🚀 setdaily started for tg:${tg} target ${target}`);
+  bot.sendMessage(tg, `🚀 تم بدء صفقة يومية (الهدف ${target>=0?'+':'-'}$${Math.abs(target)}).`);
+});
+
+// ===== Ban Management =====
+bot.onText(/^\/ban\s+(\d+)\s+([\s\S]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const reason = m[2].trim();
+  
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  await q(`UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW() WHERE tg_id = $2`, [reason, tg]);
+  
+  bot.sendMessage(msg.chat.id, `🚫 User ${tg} has been banned.\nReason: ${reason}`);
+  
+  // Notify user
+  bot.sendMessage(tg, `🚫 *تم حظر حسابك*
+
+━━━━━━━━━━━━━━━━━━━━
+📋 *السبب:* ${reason}
+
+📩 للتواصل مع الدعم:
+━━━━━━━━━━━━━━━━━━━━
+
+⛔ *Your account has been suspended*
+Reason: ${reason}`, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💬 تواصل مع الدعم | Contact Support", url: "https://t.me/QL_Support" }]
+      ]
+    }
+  }).catch(()=>{});
+});
+
+bot.onText(/^\/unban\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  
+  await q(`UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL WHERE tg_id = $1`, [tg]);
+  
+  bot.sendMessage(msg.chat.id, `✅ User ${tg} has been unbanned.`);
+  bot.sendMessage(tg, `✅ *تم رفع الحظر عن حسابك*
+
+يمكنك الآن استخدام المنصة بشكل طبيعي.
+
+✅ *Your account has been reactivated*
+You can now use the platform normally.`, { parse_mode: "Markdown" }).catch(()=>{});
+});
+
+// ===== Referral Stats =====
+bot.onText(/^\/refstats$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const totalRefs = await q(`SELECT COUNT(*) as count FROM referrals`);
+    const creditedRefs = await q(`SELECT COUNT(*) as count, COALESCE(SUM(bonus_amount), 0) as total FROM referrals WHERE status = 'credited'`);
+    const pendingRefs = await q(`SELECT COUNT(*) as count FROM referrals WHERE status = 'pending'`);
+    
+    bot.sendMessage(msg.chat.id, `📊 *Referral Statistics*
+
+📌 Total Referrals: ${totalRefs.rows[0].count}
+✅ Credited: ${creditedRefs.rows[0].count} ($${Number(creditedRefs.rows[0].total).toFixed(2)})
+⏳ Pending: ${pendingRefs.rows[0].count}`, { parse_mode: "Markdown" });
+  } catch(e) {
+    bot.sendMessage(msg.chat.id, `❌ Error: ${e.message}`);
+  }
+});
+
+// السحب: approve / reject (with frozen_balance handling)
+bot.onText(/^\/approve_withdraw\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const id = Number(m[1]);
+  const r0 = await q(`SELECT * FROM requests WHERE id=$1`, [id]).then(r => r.rows[0]);
+  if (!r0) return bot.sendMessage(msg.chat.id, "Request not found");
+  if (r0.status !== "pending") return bot.sendMessage(msg.chat.id, "Not pending");
+  await q(`UPDATE requests SET status='approved', updated_at=NOW() WHERE id=$1`, [id]);
+  // Release frozen balance
+  await q(`UPDATE users SET frozen_balance = GREATEST(0, COALESCE(frozen_balance, 0) - $1) WHERE id=$2`, [r0.amount, r0.user_id]);
+  const tg = await q(`SELECT tg_id, balance FROM users WHERE id=$1`, [r0.user_id]).then(r => r.rows[0]);
+  bot.sendMessage(msg.chat.id, `✅ Withdraw #${id} approved ($${Number(r0.amount).toFixed(2)})`);
+  if (tg?.tg_id) bot.sendMessage(Number(tg.tg_id), `✦ *تمت الموافقة على طلب السحب* ✦\n\n━━━━━━━━━━━━━━━━━━━━\n◆ رقم الطلب: #${id}\n◆ المبلغ: $${Number(r0.amount).toFixed(2)}\n━━━━━━━━━━━━━━━━━━━━\n\n✅ سيتم تحويل المبلغ قريباً.`, { parse_mode: "Markdown" }).catch(()=>{});
+});
+
+bot.onText(/^\/reject_withdraw\s+(\d+)\s+(.+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const id = Number(m[1]); const reason = m[2];
+  const r0 = await q(`SELECT * FROM requests WHERE id=$1`, [id]).then(r => r.rows[0]);
+  if (!r0) return bot.sendMessage(msg.chat.id, "Request not found");
+  if (r0.status !== "pending") return bot.sendMessage(msg.chat.id, "Not pending");
+  await q(`UPDATE requests SET status='rejected', updated_at=NOW() WHERE id=$1`, [id]);
+  // Return frozen balance to available balance
+  await q(`UPDATE users SET balance = balance + $1, frozen_balance = GREATEST(0, COALESCE(frozen_balance, 0) - $1) WHERE id=$2`, [r0.amount, r0.user_id]);
+  const tg = await q(`SELECT tg_id, balance FROM users WHERE id=$1`, [r0.user_id]).then(r => r.rows[0]);
+  bot.sendMessage(msg.chat.id, `✅ Withdraw #${id} rejected - $${Number(r0.amount).toFixed(2)} returned to balance`);
+  if (tg?.tg_id) bot.sendMessage(Number(tg.tg_id), `✦ *تم رفض طلب السحب* ✦\n\n━━━━━━━━━━━━━━━━━━━━\n◆ رقم الطلب: #${id}\n◆ المبلغ: $${Number(r0.amount).toFixed(2)}\n◆ السبب: ${reason}\n━━━━━━━━━━━━━━━━━━━━\n\n◆ تم إرجاع المبلغ لرصيدك.`, { parse_mode: "Markdown" }).catch(()=>{});
+});
+
+// broadcast / notify
+bot.onText(/^\/broadcast\s+all\s+([\s\S]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const text = m[1].trim();
+  const list = await q(`SELECT tg_id FROM users WHERE tg_id IS NOT NULL`);
+  let ok = 0;
+  for (const row of list.rows) {
+    try { await bot.sendMessage(Number(row.tg_id), text); ok++; } catch {}
+  }
+  bot.sendMessage(msg.chat.id, `📣 Broadcast sent to ${ok} users.`);
+});
+
+bot.onText(/^\/notify\s+(\d+)\s+([\s\S]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]); const text = m[2];
+  try { await bot.sendMessage(tg, text); bot.sendMessage(msg.chat.id, "✅ Sent."); }
+  catch (e) { bot.sendMessage(msg.chat.id, "❌ " + e.message); }
+});
+
+// ===== أوامر التحكم بالسحب =====
+bot.onText(/^\/stopwithdraw$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('withdrawal_enabled', 'false') 
+             ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `⏸️ *تم إيقاف السحب*\n\n⚠️ جميع طلبات السحب الجديدة ستُرفض تلقائياً.\n💬 الرسالة للمستخدمين: "تم توقيف السحب مؤقتاً بسبب الصيانة"\n\n✅ لإعادة تفعيل السحب استخدم: /startwithdraw`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+bot.onText(/^\/startwithdraw$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('withdrawal_enabled', 'true') 
+             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `✅ *تم تفعيل السحب*\n\n💸 المستخدمون يمكنهم الآن طلب السحب بشكل طبيعي.`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+bot.onText(/^\/withdrawstatus$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'withdrawal_enabled'`);
+    const enabled = result.rows.length === 0 || result.rows[0].value !== 'false';
+    bot.sendMessage(msg.chat.id, `📊 *حالة السحب*\n\nالسحب: ${enabled ? '✅ مفعّل' : '🛑 متوقف'}\n\n${enabled ? '🔴 لإيقاف السحب: /stopwithdraw' : '🟢 لتفعيل السحب: /startwithdraw'}`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+// ===== أوامر الصيانة =====
+bot.onText(/^\/maintenance$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'true') 
+             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `🔧 *تم تفعيل وضع الصيانة*\n\n⚠️ المستخدمون سيرون شاشة الصيانة عند فتح التطبيق.\n\n📝 لإضافة أيدي مستثنى: /maint\\_allow <tg\\_id>\n📝 لإزالة أيدي: /maint\\_remove <tg\\_id>\n📋 لعرض القائمة: /maint\\_list\n✅ لإنهاء الصيانة: /endmaintenance`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+// ===== /maint_allow <tg_id> - إضافة أيدي لقائمة الاستثناء =====
+bot.onText(/^\/maint_allow\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tgId = m[1];
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+    let whitelist = result.rows.length > 0 ? (result.rows[0].value || '').split(',').filter(s => s.trim()) : [];
+    if (!whitelist.includes(tgId)) whitelist.push(tgId);
+    const newValue = whitelist.join(',');
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_whitelist', $1) 
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [newValue]);
+    bot.sendMessage(msg.chat.id, `✅ *تم إضافة الأيدي لقائمة الاستثناء*\n\n👤 tg\_id: ${tgId}\n📋 القائمة الحالية: ${whitelist.join(', ')}\n\nℹ️ هذا المستخدم سيفتح عنده البوت بشكل طبيعي حتى أثناء الصيانة.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// ===== /maint_remove <tg_id> - إزالة أيدي من قائمة الاستثناء =====
+bot.onText(/^\/maint_remove\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tgId = m[1];
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+    let whitelist = result.rows.length > 0 ? (result.rows[0].value || '').split(',').filter(s => s.trim()) : [];
+    whitelist = whitelist.filter(id => id !== tgId);
+    const newValue = whitelist.join(',');
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_whitelist', $1) 
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [newValue]);
+    bot.sendMessage(msg.chat.id, `✅ *تم إزالة الأيدي من قائمة الاستثناء*\n\n👤 tg\_id: ${tgId}\n📋 القائمة الحالية: ${whitelist.length > 0 ? whitelist.join(', ') : 'فارغة'}`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// ===== /maint_list - عرض قائمة الاستثناء =====
+bot.onText(/^\/maint_list$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+    const whitelist = result.rows.length > 0 ? (result.rows[0].value || '').split(',').filter(s => s.trim()) : [];
+    if (whitelist.length === 0) {
+      bot.sendMessage(msg.chat.id, `📋 *قائمة استثناء الصيانة*\n\nلا يوجد أيديات مستثناة.`, { parse_mode: 'Markdown' });
+    } else {
+      const list = whitelist.map((id, i) => `${i + 1}. \`${id}\``).join('\n');
+      bot.sendMessage(msg.chat.id, `📋 *قائمة استثناء الصيانة*\n\n${list}\n\nℹ️ هؤلاء المستخدمون يفتح عندهم البوت طبيعي أثناء الصيانة.`, { parse_mode: 'Markdown' });
+    }
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+bot.onText(/^\/endmaintenance$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'false') 
+             ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `✅ *تم إنهاء وضع الصيانة*\n\n🚀 التطبيق يعمل بشكل طبيعي الآن.`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+bot.onText(/^\/maintenancestatus$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_mode'`);
+    const enabled = result.rows.length > 0 && result.rows[0].value === 'true';
+    bot.sendMessage(msg.chat.id, `📊 *حالة الصيانة*\n\nالصيانة: ${enabled ? '🔧 مفعّلة' : '✅ غير مفعّلة'}\n\n${enabled ? '✅ لإنهاء الصيانة: /endmaintenance' : '🔧 لتفعيل الصيانة: /maintenance'}`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+bot.onText(/^\/stopbot$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('bot_stopped', 'true') 
+             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'true') 
+             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `⏹️ *تم إيقاف البوت*\n\n⚠️ البوت متوقف عن العمل والمستخدمون سيرون شاشة الصيانة.\n\n✅ لتشغيل البوت: /startbot`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+bot.onText(/^\/startbot$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    await q(`INSERT INTO settings (key, value) VALUES ('bot_stopped', 'false') 
+             ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+    await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'false') 
+             ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+    bot.sendMessage(msg.chat.id, `✅ *تم تشغيل البوت*\n\n🚀 البوت يعمل بشكل طبيعي الآن.`, { parse_mode: "Markdown" });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, "❌ Error: " + e.message);
+  }
+});
+
+// ===== نظام المكافآت =====
+// /reward <amount> - توزيع مكافأة على جميع المستخدمين
+bot.onText(/^\/reward\s+([\d.]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const totalAmount = parseFloat(m[1]);
+  if (isNaN(totalAmount) || totalAmount <= 0) {
+    return bot.sendMessage(msg.chat.id, '❌ المبلغ غير صحيح.');
+  }
+
+  try {
+    // Get all active users
+    const usersResult = await q(`SELECT id, tg_id, name, first_name FROM users WHERE is_active = true`);
+    const users = usersResult.rows;
+    if (users.length === 0) {
+      return bot.sendMessage(msg.chat.id, '❌ لا يوجد مستخدمين نشطين.');
+    }
+
+    const perUser = Number((totalAmount / users.length).toFixed(2));
+    const rewardId = Date.now().toString(36);
+
+    // Create reward record in settings as JSON
+    const rewardData = JSON.stringify({
+      id: rewardId,
+      totalAmount,
+      perUser,
+      totalUsers: users.length,
+      claimed: [],
+      createdAt: new Date().toISOString(),
+      active: true
+    });
+
+    await q(`INSERT INTO settings (key, value) VALUES ('active_reward', $1)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [rewardData]);
+
+    bot.sendMessage(msg.chat.id, `🎁 *تم إنشاء المكافأة بنجاح!*\n\n💰 المبلغ الإجمالي: $${totalAmount}\n👥 عدد المستخدمين: ${users.length}\n💵 لكل مستخدم: $${perUser}\n🆔 رقم المكافأة: ${rewardId}\n\n✨ المستخدمون سيرون صندوق "افتح واربح" عند فتح البوت.\n\n📋 /reward\\_status - عرض الحالة\n❌ /reward\\_cancel - إلغاء`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// /reward_send <tg_id> <amount> - إرسال مكافأة لشخص معين (يظهر له صندوق الهدية)
+bot.onText(/^\/reward_send\s+(\d+)\s+([\d.]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tgId = m[1];
+  const amount = parseFloat(m[2]);
+  if (isNaN(amount) || amount <= 0) {
+    return bot.sendMessage(msg.chat.id, '❌ المبلغ غير صحيح.');
+  }
+
+  try {
+    // Check if user exists
+    const userResult = await q(`SELECT id, tg_id, name, first_name FROM users WHERE tg_id = $1`, [tgId]);
+    if (userResult.rows.length === 0) {
+      return bot.sendMessage(msg.chat.id, `❌ المستخدم ${tgId} غير موجود.`);
+    }
+
+    const user = userResult.rows[0];
+    const rewardId = 'p_' + Date.now().toString(36);
+
+    // Create a personal reward for this specific user
+    const rewardData = JSON.stringify({
+      id: rewardId,
+      totalAmount: amount,
+      perUser: amount,
+      totalUsers: 1,
+      targetUser: String(tgId),
+      claimed: [],
+      createdAt: new Date().toISOString(),
+      active: true,
+      isPersonal: true
+    });
+
+    // Store as personal reward (separate key per user)
+    await q(`INSERT INTO settings (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`, 
+             [`personal_reward_${tgId}`, rewardData]);
+
+    const userName = user.name || user.first_name || tgId;
+    bot.sendMessage(msg.chat.id, `🎁 *تم إرسال المكافأة!*\n\n👤 المستخدم: ${userName} (${tgId})\n💰 المبلغ: $${amount}\n🆔 الرقم: ${rewardId}\n\n✨ سيظهر له صندوق "افتح واربح" عند فتح البوت.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// /reward_status - عرض حالة المكافأة
+bot.onText(/^\/reward_status$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'active_reward'`);
+    if (result.rows.length === 0) {
+      return bot.sendMessage(msg.chat.id, '📋 لا توجد مكافأة نشطة حالياً.');
+    }
+    const reward = JSON.parse(result.rows[0].value);
+    if (!reward.active) {
+      return bot.sendMessage(msg.chat.id, '📋 لا توجد مكافأة نشطة حالياً.');
+    }
+    const claimed = reward.claimed ? reward.claimed.length : 0;
+    bot.sendMessage(msg.chat.id, `🎁 *حالة المكافأة*\n\n🆔 الرقم: ${reward.id}\n💰 المبلغ الإجمالي: $${reward.totalAmount}\n💵 لكل مستخدم: $${reward.perUser}\n👥 إجمالي المستخدمين: ${reward.totalUsers}\n✅ فتحوا الصندوق: ${claimed}/${reward.totalUsers}\n📅 تاريخ الإنشاء: ${new Date(reward.createdAt).toLocaleString('ar')}`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// /reward_cancel - إلغاء المكافأة
+bot.onText(/^\/reward_cancel$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'active_reward'`);
+    if (result.rows.length === 0) {
+      return bot.sendMessage(msg.chat.id, '❌ لا توجد مكافأة نشطة لإلغائها.');
+    }
+    const reward = JSON.parse(result.rows[0].value);
+    reward.active = false;
+    await q(`UPDATE settings SET value = $1, updated_at = NOW() WHERE key = 'active_reward'`, [JSON.stringify(reward)]);
+    bot.sendMessage(msg.chat.id, `✅ *تم إلغاء المكافأة*\n\n🆔 ${reward.id}\n✅ فتحوا: ${reward.claimed?.length || 0}/${reward.totalUsers}`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// ===== Session Management: Logout =====
+// /logout <tg_id> - Logout specific user from all devices
+bot.onText(/^\/logout\s+(\d+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tgId = m[1];
+
+  try {
+    // Check user exists
+    const userResult = await q(`SELECT id, name, first_name, tg_id FROM users WHERE tg_id = $1`, [tgId]);
+    if (userResult.rows.length === 0) {
+      return bot.sendMessage(msg.chat.id, `❌ المستخدم ${tgId} غير موجود.`);
+    }
+
+    const user = userResult.rows[0];
+    // Generate a new session token to invalidate all old sessions
+    const newToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    await q(`UPDATE users SET session_token = $1, updated_at = NOW() WHERE tg_id = $2`, [newToken, tgId]);
+
+    const userName = user.name || user.first_name || tgId;
+    bot.sendMessage(msg.chat.id, `🔐 *تم تسجيل الخروج*\n\n👤 المستخدم: ${userName}\n🆔 ID: ${tgId}\n\n✅ تم تسجيل خروجه من جميع الأجهزة.\nسيحتاج إعادة تسجيل الدخول بالمفتاح.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// /logout_all - Logout ALL users from all devices
+bot.onText(/^\/logout_all$/, async (msg) => {
+  if (!isAdmin(msg)) return;
+
+  try {
+    // Generate new session tokens for all users
+    const result = await q(`SELECT COUNT(*) as cnt FROM users WHERE is_active = true`);
+    const count = result.rows[0].cnt;
+
+    await q(`UPDATE users SET session_token = CONCAT(EXTRACT(EPOCH FROM NOW())::text, '_', MD5(RANDOM()::text)), updated_at = NOW() WHERE is_active = true`);
+
+    bot.sendMessage(msg.chat.id, `🔐 *تم تسجيل خروج الجميع!*\n\n👥 عدد المستخدمين: ${count}\n\n✅ تم تسجيل خروج جميع المستخدمين من جميع الأجهزة.\nسيحتاجون إعادة تسجيل الدخول بالمفتاح.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    bot.sendMessage(msg.chat.id, '❌ Error: ' + e.message);
+  }
+});
+
+// ===== Admin Panel Callback Handlers =====
+// Store pending admin actions (waiting for user input)
+const adminPending = {};
+
+bot.on('callback_query', async (callbackQuery) => {
+  const msg = callbackQuery.message;
+  const chatId = msg.chat.id;
+  const data = callbackQuery.data;
+  
+  // Only admin can use panel
+  if (String(chatId) !== String(ADMIN_ID)) {
+    return bot.answerCallbackQuery(callbackQuery.id, { text: '⛔ غير مصرح' });
+  }
+
+  bot.answerCallbackQuery(callbackQuery.id);
+
+  const backBtn = [[{ text: '◀️ رجوع للوحة', callback_data: 'panel_back' }]];
+
+  // ===== Main Panel Sections =====
+  if (data === 'panel_back') {
+    return bot.editMessageText(`⚙️ *لوحة التحكم - Admin Dashboard v4.0*\n\nاختر القسم المطلوب:`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '👥 إدارة المستخدمين', callback_data: 'panel_users' }, { text: '🎖️ الرتب', callback_data: 'panel_ranks' }],
+          [{ text: '📊 التداول', callback_data: 'panel_trades' }, { text: '⛔ الحظر', callback_data: 'panel_ban' }],
+          [{ text: '💰 السحب', callback_data: 'panel_withdraw' }, { text: '📣 التواصل', callback_data: 'panel_comm' }],
+          [{ text: '🎁 المكافآت', callback_data: 'panel_rewards' }, { text: '🔐 الجلسات', callback_data: 'panel_sessions' }],
+          [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }]
+        ]
+      }
+    });
+  }
+
+  // ===== Users Section =====
+  if (data === 'panel_users') {
+    return bot.editMessageText(`👥 *إدارة المستخدمين*\n\nالأوامر المتاحة:\n\n\`/addbalance <tg_id> <amount>\` - إضافة رصيد\n\`/silentadd <tg_id> <amount>\` - إضافة صامتة\n\`/removebalance <tg_id> <amount>\` - خصم رصيد\n\`/zerobalance <tg_id>\` - تصفير الرصيد\n\`/setmoney <tg_id> <amount>\` - تحديد الرصيد\n\`/setstats <tg_id> <wins> <losses>\` - إضافة إحصائيات\n\`/resetstats <tg_id>\` - إعادة تعيين الإحصائيات\n\`/create_key <KEY> <DAYS>\` - إنشاء مفتاح\n\`/userinfo <tg_id>\` - معلومات المستخدم`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Ranks Section =====
+  if (data === 'panel_ranks') {
+    return bot.editMessageText(`🎖️ *إدارة الرتب*\n\nالأوامر المتاحة:\n\n\`/setrank <tg_id> <rank>\` - تعيين الرتبة\n  الرتب: member | agent | gold\_agent | partner\n\`/clearrank <tg_id>\` - إعادة تعيين لعضو`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Trades Section =====
+  if (data === 'panel_trades') {
+    return bot.editMessageText(`📊 *عمليات التداول*\n\nالأوامر المتاحة:\n\n\`/open <tg_id> <hours> <target>\` - فتح صفقة\n\`/close_trade <trade_id> <pnl>\` - إغلاق صفقة\n\`/setdaily <tg_id> <amount>\` - تحديد الربح اليومي`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Ban Section =====
+  if (data === 'panel_ban') {
+    return bot.editMessageText(`⛔ *إدارة الحظر*\n\nالأوامر المتاحة:\n\n\`/ban <tg_id> <reason>\` - حظر مستخدم\n\`/unban <tg_id>\` - إلغاء الحظر`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Communication Section =====
+  if (data === 'panel_comm') {
+    return bot.editMessageText(`📣 *التواصل*\n\nالأوامر المتاحة:\n\n\`/broadcast all <message>\` - إرسال للجميع\n\`/notify <tg_id> <message>\` - رسالة خاصة`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Referrals Section =====
+  if (data === 'panel_referrals') {
+    return bot.editMessageText(`🤝 *نظام الإحالات*\n\nالأوامر المتاحة:\n\n\`/refstats\` - إحصائيات الإحالات`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: backBtn }
+    });
+  }
+
+  // ===== Withdraw Section =====
+  if (data === 'panel_withdraw') {
+    // Get current withdrawal status
+    let statusText = '✅ مفعّل';
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'withdrawal_enabled'`);
+      if (result.rows.length > 0 && result.rows[0].value === 'false') statusText = '🛑 متوقف';
+    } catch(e) {}
+
+    return bot.editMessageText(`💰 *إدارة السحب*\n\n📊 حالة السحب: ${statusText}\n\nالأوامر:\n\`/approve_withdraw <id>\` - موافقة\n\`/reject_withdraw <id> <reason>\` - رفض`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '⏸️ إيقاف السحب', callback_data: 'act_stopwithdraw' }, { text: '▶️ تشغيل السحب', callback_data: 'act_startwithdraw' }],
+          backBtn[0]
+        ]
+      }
+    });
+  }
+
+  // ===== Rewards Section =====
+  if (data === 'panel_rewards') {
+    // Get current reward status
+    let rewardInfo = 'لا توجد مكافأة نشطة';
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'active_reward'`);
+      if (result.rows.length > 0) {
+        const reward = JSON.parse(result.rows[0].value);
+        if (reward.active) {
+          const claimed = reward.claimed ? reward.claimed.length : 0;
+          rewardInfo = `✅ نشطة | $${reward.totalAmount} | فتحوا: ${claimed}/${reward.totalUsers}`;
+        }
+      }
+    } catch(e) {}
+
+    return bot.editMessageText(`🎁 *نظام المكافآت*\n\n📊 الحالة: ${rewardInfo}\n\nالأوامر:\n\`/reward <amount>\` - توزيع على الجميع\n\`/reward_send <tg_id> <amount>\` - إرسال لشخص معين`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🎁 توزيع مكافأة للجميع', callback_data: 'act_reward_all' }],
+          [{ text: '🎯 إرسال لشخص معين', callback_data: 'act_reward_send' }],
+          [{ text: '📊 حالة المكافأة', callback_data: 'act_reward_status' }, { text: '❌ إلغاء المكافأة', callback_data: 'act_reward_cancel' }],
+          backBtn[0]
+        ]
+      }
+    });
+  }
+
+  // ===== Sessions Section =====
+  if (data === 'panel_sessions') {
+    return bot.editMessageText(`🔐 *إدارة الجلسات*\n\nتسجيل خروج المستخدمين من جميع الأجهزة.\nسيحتاجون إعادة تسجيل الدخول بالمفتاح.\n\nالأوامر:\n\`/logout <tg_id>\` - خروج مستخدم معين`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔐 خروج مستخدم معين', callback_data: 'act_logout_user' }],
+          [{ text: '🔴 خروج جميع المستخدمين', callback_data: 'act_logout_all' }],
+          backBtn[0]
+        ]
+      }
+    });
+  }
+
+  // ===== Maintenance Section =====
+  if (data === 'panel_maintenance') {
+    // Get current maintenance status
+    let maintStatus = '✅ البوت يعمل';
+    let wlList = 'لا يوجد';
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_mode'`);
+      if (result.rows.length > 0 && result.rows[0].value === 'true') maintStatus = '🔴 وضع الصيانة مفعل';
+      const wlResult = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+      if (wlResult.rows.length > 0 && wlResult.rows[0].value) {
+        const ids = wlResult.rows[0].value.split(',').filter(s => s.trim());
+        if (ids.length > 0) wlList = ids.join(', ');
+      }
+    } catch(e) {}
+
+    return bot.editMessageText(`🔧 *إدارة الصيانة*\n\n📊 الحالة: ${maintStatus}\n📄 القائمة البيضاء: ${wlList}\n\nالأوامر:\n\`/maint_allow <tg_id>\` - إضافة للقائمة البيضاء\n\`/maint_remove <tg_id>\` - إزالة من القائمة`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔴 تفعيل الصيانة', callback_data: 'act_maint_on' }, { text: '🟢 إيقاف الصيانة', callback_data: 'act_maint_off' }],
+          [{ text: '➕ إضافة للقائمة البيضاء', callback_data: 'act_maint_allow' }],
+          [{ text: '➖ إزالة من القائمة', callback_data: 'act_maint_remove' }],
+          [{ text: '📋 عرض القائمة', callback_data: 'act_maint_list' }],
+          backBtn[0]
+        ]
+      }
+    });
+  }
+
+  // ===== ACTION HANDLERS =====
+
+  // -- Withdraw actions --
+  if (data === 'act_stopwithdraw') {
+    try {
+      await q(`INSERT INTO settings (key, value) VALUES ('withdrawal_enabled', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+      bot.sendMessage(chatId, '⏸️ *تم إيقاف السحب*\n\nجميع طلبات السحب الجديدة ستُرفض تلقائياً.', { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  if (data === 'act_startwithdraw') {
+    try {
+      await q(`INSERT INTO settings (key, value) VALUES ('withdrawal_enabled', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+      bot.sendMessage(chatId, '▶️ *تم تشغيل السحب*\n\nالمستخدمون يقدرون يسحبون الحين.', { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  // -- Reward actions --
+  if (data === 'act_reward_all') {
+    adminPending[chatId] = { action: 'reward_all', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '🎁 *توزيع مكافأة للجميع*\n\nأرسل المبلغ الإجمالي:\nمثال: `1000`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_reward_send') {
+    adminPending[chatId] = { action: 'reward_send', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '🎯 *إرسال مكافأة لشخص معين*\n\nأرسل الأيدي والمبلغ:\nمثال: `123456 50`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_reward_status') {
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'active_reward'`);
+      if (result.rows.length === 0) return bot.sendMessage(chatId, '📋 لا توجد مكافأة نشطة حالياً.');
+      const reward = JSON.parse(result.rows[0].value);
+      if (!reward.active) return bot.sendMessage(chatId, '📋 لا توجد مكافأة نشطة حالياً.');
+      const claimed = reward.claimed ? reward.claimed.length : 0;
+      bot.sendMessage(chatId, `🎁 *حالة المكافأة*\n\n🆔 الرقم: ${reward.id}\n💰 المبلغ: $${reward.totalAmount}\n💵 لكل مستخدم: $${reward.perUser}\n👥 الإجمالي: ${reward.totalUsers}\n✅ فتحوا: ${claimed}/${reward.totalUsers}\n📅 التاريخ: ${new Date(reward.createdAt).toLocaleString('ar')}`, { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  if (data === 'act_reward_cancel') {
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'active_reward'`);
+      if (result.rows.length === 0) return bot.sendMessage(chatId, '❌ لا توجد مكافأة نشطة لإلغائها.');
+      const reward = JSON.parse(result.rows[0].value);
+      reward.active = false;
+      await q(`UPDATE settings SET value = $1, updated_at = NOW() WHERE key = 'active_reward'`, [JSON.stringify(reward)]);
+      bot.sendMessage(chatId, `✅ *تم إلغاء المكافأة*\n\n🆔 ${reward.id}\n✅ فتحوا: ${reward.claimed?.length || 0}/${reward.totalUsers}`, { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  // -- Session actions --
+  if (data === 'act_logout_user') {
+    adminPending[chatId] = { action: 'logout_user', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '🔐 *تسجيل خروج مستخدم*\n\nأرسل الأيدي (tg\_id):\nمثال: `123456`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_logout_all') {
+    try {
+      const result = await q(`SELECT COUNT(*) as cnt FROM users WHERE is_active = true`);
+      const count = result.rows[0].cnt;
+      await q(`UPDATE users SET session_token = CONCAT(EXTRACT(EPOCH FROM NOW())::text, '_', MD5(RANDOM()::text)), updated_at = NOW() WHERE is_active = true`);
+      bot.sendMessage(chatId, `🔐 *تم تسجيل خروج الجميع!*\n\n👥 عدد المستخدمين: ${count}\n✅ تم تسجيل خروج الجميع من جميع الأجهزة.`, { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  // -- Maintenance actions --
+  if (data === 'act_maint_on') {
+    try {
+      await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`);
+      bot.sendMessage(chatId, '🔴 *تم تفعيل وضع الصيانة*\n\nالمستخدمون سيرون شاشة الصيانة (ما عدا القائمة البيضاء).', { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  if (data === 'act_maint_off') {
+    try {
+      await q(`INSERT INTO settings (key, value) VALUES ('maintenance_mode', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`);
+      bot.sendMessage(chatId, '🟢 *تم إيقاف وضع الصيانة*\n\nالبوت يعمل بشكل طبيعي الحين.', { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+
+  if (data === 'act_maint_allow') {
+    adminPending[chatId] = { action: 'maint_allow', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '➕ *إضافة للقائمة البيضاء*\n\nأرسل الأيدي (tg\_id):\nمثال: `123456`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_maint_remove') {
+    adminPending[chatId] = { action: 'maint_remove', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '➖ *إزالة من القائمة البيضاء*\n\nأرسل الأيدي (tg\_id):\nمثال: `123456`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_maint_list') {
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+      if (result.rows.length === 0 || !result.rows[0].value) {
+        return bot.sendMessage(chatId, '📋 القائمة البيضاء فارغة.');
+      }
+      const ids = result.rows[0].value.split(',').filter(s => s.trim());
+      if (ids.length === 0) return bot.sendMessage(chatId, '📋 القائمة البيضاء فارغة.');
+      bot.sendMessage(chatId, `📋 *القائمة البيضاء (${ids.length}):*\n\n${ids.map((id, i) => `${i+1}. \`${id.trim()}\``).join('\n')}`, { parse_mode: 'Markdown' });
+    } catch(e) { bot.sendMessage(chatId, '❌ Error: ' + e.message); }
+  }
+});
+
+// ===== Handle pending admin input (text messages after button press) =====
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  if (String(chatId) !== String(ADMIN_ID)) return;
+  if (!adminPending[chatId]) return;
+  if (msg.text && msg.text.startsWith('/')) { delete adminPending[chatId]; return; } // Cancel on command
+
+  const pending = adminPending[chatId];
+  if (pending.expiresAt && Date.now() > pending.expiresAt) {
+    delete adminPending[chatId];
+    return bot.sendMessage(chatId, '⏰ انتهت مهلة العملية (دقيقتان). أعد المحاولة.');
+  }
+  const text = (msg.text || '').trim();
+  delete adminPending[chatId];
+
+  try {
+    // -- Reward All --
+    if (pending.action === 'reward_all') {
+      const totalAmount = parseFloat(text);
+      if (isNaN(totalAmount) || totalAmount <= 0) return bot.sendMessage(chatId, '❌ المبلغ غير صحيح.');
+      const usersResult = await q(`SELECT id, tg_id FROM users WHERE is_active = true`);
+      const users = usersResult.rows;
+      if (users.length === 0) return bot.sendMessage(chatId, '❌ لا يوجد مستخدمين نشطين.');
+      const perUser = Number((totalAmount / users.length).toFixed(2));
+      const rewardId = Date.now().toString(36);
+      const rewardData = JSON.stringify({ id: rewardId, totalAmount, perUser, totalUsers: users.length, claimed: [], createdAt: new Date().toISOString(), active: true });
+      await q(`INSERT INTO settings (key, value) VALUES ('active_reward', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [rewardData]);
+      bot.sendMessage(chatId, `🎁 *تم إنشاء المكافأة!*\n\n💰 المبلغ: $${totalAmount}\n👥 المستخدمين: ${users.length}\n💵 لكل واحد: $${perUser}`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Reward Send --
+    if (pending.action === 'reward_send') {
+      const parts = text.split(/\s+/);
+      if (parts.length < 2) return bot.sendMessage(chatId, '❌ الصيغة: الأيدي المبلغ\nمثال: 123456 50');
+      const tgId = parts[0];
+      const amount = parseFloat(parts[1]);
+      if (isNaN(amount) || amount <= 0) return bot.sendMessage(chatId, '❌ المبلغ غير صحيح.');
+      const userResult = await q(`SELECT id, name, first_name FROM users WHERE tg_id = $1`, [tgId]);
+      if (userResult.rows.length === 0) return bot.sendMessage(chatId, `❌ المستخدم ${tgId} غير موجود.`);
+      const user = userResult.rows[0];
+      const rewardId = 'p_' + Date.now().toString(36);
+      const rewardData = JSON.stringify({ id: rewardId, totalAmount: amount, perUser: amount, totalUsers: 1, targetUser: String(tgId), claimed: [], createdAt: new Date().toISOString(), active: true, isPersonal: true });
+      await q(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`, [`personal_reward_${tgId}`, rewardData]);
+      const userName = user.name || user.first_name || tgId;
+      bot.sendMessage(chatId, `🎁 *تم إرسال المكافأة!*\n\n👤 ${userName} (${tgId})\n💰 $${amount}`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Logout User --
+    if (pending.action === 'logout_user') {
+      const tgId = text.trim();
+      if (!tgId || isNaN(tgId)) return bot.sendMessage(chatId, '❌ أيدي غير صحيح.');
+      const userResult = await q(`SELECT id, name, first_name FROM users WHERE tg_id = $1`, [tgId]);
+      if (userResult.rows.length === 0) return bot.sendMessage(chatId, `❌ المستخدم ${tgId} غير موجود.`);
+      const newToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      await q(`UPDATE users SET session_token = $1, updated_at = NOW() WHERE tg_id = $2`, [newToken, tgId]);
+      const userName = userResult.rows[0].name || userResult.rows[0].first_name || tgId;
+      bot.sendMessage(chatId, `🔐 *تم تسجيل الخروج*\n\n👤 ${userName} (${tgId})\n✅ تم تسجيل خروجه من جميع الأجهزة.`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Maintenance Allow --
+    if (pending.action === 'maint_allow') {
+      const tgId = text.trim();
+      if (!tgId || isNaN(tgId)) return bot.sendMessage(chatId, '❌ أيدي غير صحيح.');
+      const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+      let whitelist = result.rows.length > 0 ? (result.rows[0].value || '') : '';
+      const ids = whitelist.split(',').map(s => s.trim()).filter(Boolean);
+      if (ids.includes(tgId)) return bot.sendMessage(chatId, `ℹ️ الأيدي ${tgId} موجود مسبقاً في القائمة.`);
+      ids.push(tgId);
+      const newList = ids.join(',');
+      await q(`INSERT INTO settings (key, value) VALUES ('maintenance_whitelist', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [newList]);
+      bot.sendMessage(chatId, `✅ *تم إضافة ${tgId} للقائمة البيضاء*\n\nالقائمة الحالية: ${ids.join(', ')}`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Maintenance Remove --
+    if (pending.action === 'maint_remove') {
+      const tgId = text.trim();
+      if (!tgId || isNaN(tgId)) return bot.sendMessage(chatId, '❌ أيدي غير صحيح.');
+      const result = await q(`SELECT value FROM settings WHERE key = 'maintenance_whitelist'`);
+      let whitelist = result.rows.length > 0 ? (result.rows[0].value || '') : '';
+      const ids = whitelist.split(',').map(s => s.trim()).filter(Boolean);
+      if (!ids.includes(tgId)) return bot.sendMessage(chatId, `❌ الأيدي ${tgId} غير موجود في القائمة.`);
+      const newIds = ids.filter(id => id !== tgId);
+      const newList = newIds.join(',');
+      await q(`INSERT INTO settings (key, value) VALUES ('maintenance_whitelist', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [newList]);
+      bot.sendMessage(chatId, `✅ *تم إزالة ${tgId} من القائمة البيضاء*\n\nالقائمة الحالية: ${newIds.length > 0 ? newIds.join(', ') : 'فارغة'}`, { parse_mode: 'Markdown' });
+    }
+
+  } catch(e) {
+    bot.sendMessage(chatId, '❌ Error: ' + e.message);
+  }
+});
+
+export default bot;

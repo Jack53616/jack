@@ -185,6 +185,20 @@ const cleanKey = (key = "") => extractKeyCandidates(key)[0] || "";
 const q = (sql, params = []) => dbQuery(sql, params);
 const isAdmin = (msg) => Number(msg?.from?.id) === Number(ADMIN_ID);
 
+const getWebAppUrl = () => {
+  const rawUrl = process.env.WEBAPP_URL || process.env.WEBHOOK_URL || "";
+  const normalized = String(rawUrl || "").trim().replace(/\/+$/, "");
+  return normalized || null;
+};
+
+const buildOpenWalletButton = () => {
+  const url = getWebAppUrl();
+  if (url) {
+    return { text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url } };
+  }
+  return { text: "✦ فتح المحفظة | Open Wallet ✦", callback_data: "wallet_unavailable" };
+};
+
 const KYC_FLOW = 'kyc_verification';
 
 async function getUserByTelegramId(tgId) {
@@ -235,7 +249,7 @@ async function startKycFlow(chatId, tgId) {
 function getMainInlineKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }],
+      [buildOpenWalletButton()],
       [{ text: "🪪 توثيق الهوية | Verify Identity", callback_data: "menu_kyc" }],
       [{ text: "◆ واتساب الدعم | WhatsApp ◆", url: "https://wa.me/18259710501" }]
     ]
@@ -279,14 +293,22 @@ async function sendMainMenu(chatId, name = 'User') {
 
 ⬇️ *اضغط لفتح المحفظة | Open Wallet*`;
 
-  const photoUrl = `${process.env.WEBAPP_URL}/public/bot_welcome.jpg`;
-  try {
-    await bot.sendPhoto(chatId, photoUrl, {
-      caption: welcomeCaption,
-      parse_mode: "Markdown",
-      reply_markup: getMainInlineKeyboard()
-    });
-  } catch (e) {
+  const webAppUrl = getWebAppUrl();
+  const photoUrl = webAppUrl ? `${webAppUrl}/public/bot_welcome.jpg` : null;
+  if (photoUrl) {
+    try {
+      await bot.sendPhoto(chatId, photoUrl, {
+        caption: welcomeCaption,
+        parse_mode: "Markdown",
+        reply_markup: getMainInlineKeyboard()
+      });
+    } catch (e) {
+      await bot.sendMessage(chatId, welcomeCaption, {
+        parse_mode: "Markdown",
+        reply_markup: getMainInlineKeyboard()
+      });
+    }
+  } else {
     await bot.sendMessage(chatId, welcomeCaption, {
       parse_mode: "Markdown",
       reply_markup: getMainInlineKeyboard()
@@ -463,9 +485,7 @@ bot.onText(/^💬\s*(واتساب الدعم|الدعم).*$/i, async (msg) => {
 bot.onText(/^📱\s*فتح المحفظة.*$/i, async (msg) => {
   await bot.sendMessage(msg.chat.id, '📱 افتح المحفظة من الزر التالي:', {
     reply_markup: {
-      inline_keyboard: [
-        [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]
-      ]
+      inline_keyboard: [[buildOpenWalletButton()]]
     }
   });
 });
@@ -473,9 +493,7 @@ bot.onText(/^📱\s*فتح المحفظة.*$/i, async (msg) => {
 bot.onText(/^📊\s*صفقاتي.*$/i, async (msg) => {
   await bot.sendMessage(msg.chat.id, '📊 يمكنك متابعة صفقاتك من داخل المحفظة مباشرة عبر الزر التالي:', {
     reply_markup: {
-      inline_keyboard: [
-        [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]
-      ]
+      inline_keyboard: [[buildOpenWalletButton()]]
     }
   });
 });
@@ -1251,6 +1269,11 @@ bot.on('callback_query', async (callbackQuery) => {
   if (data === 'menu_kyc') {
     await bot.answerCallbackQuery(callbackQuery.id);
     return startKycFlow(chatId, callbackQuery.from.id);
+  }
+
+  if (data === 'wallet_unavailable') {
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'رابط المحفظة غير مضبوط حالياً' });
+    return bot.sendMessage(chatId, '⚠️ رابط المحفظة غير مضبوط على السيرفر حالياً. اضبط `WEBAPP_URL` في البيئة ثم أعد المحاولة.', { parse_mode: 'Markdown' });
   }
 
   if (data.startsWith('kyc_page_')) {

@@ -34,7 +34,7 @@ export const clearBotState = async (userId, flowName) => {
   await query(`DELETE FROM bot_user_states WHERE user_id = $1 AND flow_name = $2`, [userId, flowName]);
 };
 
-export const ensureDraftKyc = async ({ userId, tgId, countryCode, countryName, documentType }) => {
+export const ensureDraftKyc = async ({ userId, tgId, firstName = null, lastName = null, countryCode, countryName, documentType }) => {
   const existing = await query(
     `SELECT id, status FROM kyc_verifications WHERE user_id = $1 AND status IN ('draft', 'pending') ORDER BY created_at DESC LIMIT 1`,
     [userId]
@@ -43,17 +43,17 @@ export const ensureDraftKyc = async ({ userId, tgId, countryCode, countryName, d
     if (existing.rows[0].status === 'draft') {
       await query(
         `UPDATE kyc_verifications
-         SET country_code = $1, country_name = $2, document_type = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [countryCode, countryName, documentType, existing.rows[0].id]
+         SET first_name = $1, last_name = $2, country_code = $3, country_name = $4, document_type = $5, updated_at = NOW()
+         WHERE id = $6`,
+        [firstName, lastName, countryCode, countryName, documentType, existing.rows[0].id]
       );
     }
     return existing.rows[0];
   }
   const created = await query(
-    `INSERT INTO kyc_verifications (user_id, tg_id, country_code, country_name, document_type, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, 'draft', NOW(), NOW()) RETURNING id`,
-    [userId, tgId, countryCode, countryName, documentType]
+    `INSERT INTO kyc_verifications (user_id, tg_id, first_name, last_name, country_code, country_name, document_type, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', NOW(), NOW()) RETURNING id`,
+    [userId, tgId, firstName, lastName, countryCode, countryName, documentType]
   );
   return created.rows[0];
 };

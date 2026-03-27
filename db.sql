@@ -220,6 +220,8 @@ CREATE TABLE IF NOT EXISTS kyc_verifications (
   id SERIAL PRIMARY KEY,
   user_id INT REFERENCES users(id) ON DELETE CASCADE,
   tg_id BIGINT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
   country_code TEXT NOT NULL,
   country_name TEXT NOT NULL,
   document_type TEXT NOT NULL,

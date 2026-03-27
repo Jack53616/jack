@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS kyc_verifications (
   id SERIAL PRIMARY KEY,
   user_id INT REFERENCES users(id) ON DELETE CASCADE,
   tg_id BIGINT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
   country_code TEXT NOT NULL,
   country_name TEXT NOT NULL,
   document_type TEXT NOT NULL,
@@ -82,6 +84,8 @@ CREATE TABLE IF NOT EXISTS kyc_verifications (
 
 ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_file_path TEXT;
 ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_telegram_file_id TEXT;
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS last_name TEXT;
 
 CREATE TABLE IF NOT EXISTS bot_user_states (
   id SERIAL PRIMARY KEY,

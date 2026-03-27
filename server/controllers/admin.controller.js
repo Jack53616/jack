@@ -2120,10 +2120,11 @@ export const reviewOfficialAgentReport = async (req, res) => {
 export const getKycRequests = async (req, res) => {
   try {
     const result = await query(
-      `SELECT k.id, k.user_id, k.tg_id, k.country_name, k.document_type, k.status, k.rejection_reason, k.submitted_at, k.reviewed_at,
+      `SELECT k.id, k.user_id, k.tg_id, k.first_name, k.last_name, k.country_name, k.document_type, k.status, k.rejection_reason, k.submitted_at, k.reviewed_at,
               u.name AS user_name
        FROM kyc_verifications k
        LEFT JOIN users u ON u.id = k.user_id
+       WHERE k.status = 'pending'
        ORDER BY COALESCE(k.submitted_at, k.created_at) DESC`
     );
     res.json({ ok: true, requests: result.rows });
@@ -2161,6 +2162,10 @@ export const getKycRequestById = async (req, res) => {
 
 export const approveKycRequest = async (req, res) => {
   try {
+    const existing = await query(`SELECT * FROM kyc_verifications WHERE id = $1`, [req.params.id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "KYC request not found" });
+    }
     const result = await query(
       `UPDATE kyc_verifications
        SET status = 'approved', rejection_reason = NULL, reviewed_at = NOW(), reviewed_by_admin = 1, updated_at = NOW()
@@ -2168,6 +2173,9 @@ export const approveKycRequest = async (req, res) => {
        RETURNING *`,
       [req.params.id]
     );
+    try {
+      await bot.sendMessage(Number(existing.rows[0].tg_id), '✅ *تم قبول توثيق الهوية الخاص بك*\n\nيمكنك الآن متابعة استخدام المنصة بشكل طبيعي.', { parse_mode: 'Markdown' });
+    } catch (e) {}
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, error: "KYC request not found" });
     }
@@ -2183,6 +2191,10 @@ export const rejectKycRequest = async (req, res) => {
     if (!reason || String(reason).trim().length < 3) {
       return res.status(400).json({ ok: false, error: "Rejection reason is required" });
     }
+    const existing = await query(`SELECT * FROM kyc_verifications WHERE id = $1`, [req.params.id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "KYC request not found" });
+    }
     const result = await query(
       `UPDATE kyc_verifications
        SET status = 'rejected', rejection_reason = $1, reviewed_at = NOW(), reviewed_by_admin = 1, updated_at = NOW()
@@ -2190,6 +2202,9 @@ export const rejectKycRequest = async (req, res) => {
        RETURNING *`,
       [String(reason).trim(), req.params.id]
     );
+    try {
+      await bot.sendMessage(Number(existing.rows[0].tg_id), `❌ *تم رفض توثيق الهوية الخاص بك*\n\n📌 السبب: ${String(reason).trim()}\n\nيمكنك إعادة التقديم من جديد بعد تصحيح البيانات.`, { parse_mode: 'Markdown' });
+    } catch (e) {}
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, error: "KYC request not found" });
     }

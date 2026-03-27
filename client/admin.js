@@ -2112,7 +2112,7 @@ async function loadKycRequests() {
     ${requests.map(item => `
       <div class="table-row" style="grid-template-columns: 60px 1fr 140px 140px 120px 220px;">
         <div>${item.id}</div>
-        <div><strong>${item.user_name || '-'}</strong><br><small>${item.tg_id}</small></div>
+        <div><strong>${item.user_name || '-'}</strong><br><small>${item.first_name || '-'} ${item.last_name || ''}</small><br><small>${item.tg_id}</small></div>
         <div>${item.country_name}</div>
         <div>${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
         <div>${item.status}</div>
@@ -2133,6 +2133,7 @@ window.viewKycRequest = async (id) => {
   const html = `
     <div style="padding:12px;display:grid;gap:10px;">
       <div><strong>${item.user_name || '-'}</strong> (${item.tg_id})</div>
+      <div>الاسم: ${item.first_name || '-'} ${item.last_name || ''}</div>
       <div>الدولة: ${item.country_name}</div>
       <div>الوثيقة: ${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">

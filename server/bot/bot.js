@@ -1634,6 +1634,8 @@ bot.on('message', async (msg) => {
           const draft = await ensureDraftKyc({
             userId: user.id,
             tgId: user.tg_id,
+            firstName: msg.from.first_name || null,
+            lastName: msg.from.last_name || null,
             countryCode: payload.countryCode,
             countryName: payload.countryName,
             documentType: payload.documentType

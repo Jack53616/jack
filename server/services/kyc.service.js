@@ -51,8 +51,16 @@ export const ensureDraftKyc = async ({ userId, tgId, countryCode, countryName, d
 };
 
 export const updateKycFile = async (requestId, side, filePath, telegramFileId) => {
-  const columnPath = side === "front" ? "front_file_path" : "back_file_path";
-  const columnFileId = side === "front" ? "front_telegram_file_id" : "back_telegram_file_id";
+  const columnPath = side === "front"
+    ? "front_file_path"
+    : side === "back"
+      ? "back_file_path"
+      : "face_file_path";
+  const columnFileId = side === "front"
+    ? "front_telegram_file_id"
+    : side === "back"
+      ? "back_telegram_file_id"
+      : "face_telegram_file_id";
   await query(
     `UPDATE kyc_verifications SET ${columnPath} = $1, ${columnFileId} = $2, updated_at = NOW() WHERE id = $3`,
     [filePath, telegramFileId, requestId]
@@ -66,7 +74,7 @@ export const submitKycRequest = async (requestId) => {
     const result = await client.query(`SELECT * FROM kyc_verifications WHERE id = $1 FOR UPDATE`, [requestId]);
     if (result.rows.length === 0) throw new Error("KYC request not found");
     const row = result.rows[0];
-    if (!row.front_file_path || !row.back_file_path) throw new Error("KYC images are incomplete");
+    if (!row.front_file_path || !row.back_file_path || !row.face_file_path) throw new Error("KYC images are incomplete");
     await client.query(
       `UPDATE kyc_verifications SET status = 'pending', submitted_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [requestId]

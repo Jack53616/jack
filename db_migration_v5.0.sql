@@ -67,8 +67,10 @@ CREATE TABLE IF NOT EXISTS kyc_verifications (
   document_type TEXT NOT NULL,
   front_file_path TEXT,
   back_file_path TEXT,
+  face_file_path TEXT,
   front_telegram_file_id TEXT,
   back_telegram_file_id TEXT,
+  face_telegram_file_id TEXT,
   status TEXT DEFAULT 'draft',
   rejection_reason TEXT,
   submitted_at TIMESTAMPTZ,
@@ -77,6 +79,9 @@ CREATE TABLE IF NOT EXISTS kyc_verifications (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_file_path TEXT;
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_telegram_file_id TEXT;
 
 CREATE TABLE IF NOT EXISTS bot_user_states (
   id SERIAL PRIMARY KEY,

@@ -62,6 +62,15 @@ app.get("/official_agent.html", (req, res) => {
   res.sendFile(path.join(__dirname, "../client/official_agent.html"));
 });
 
+app.get(["/", "/index.html"], (req, res) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "X-Robots-Tag": "noindex, nofollow",
+  });
+  res.sendFile(path.join(__dirname, "../client/index.html"));
+});
+
 // Serve static files
 app.use(express.static(path.join(__dirname, "../client")));
 app.use("/public", express.static(path.join(__dirname, "../public")));

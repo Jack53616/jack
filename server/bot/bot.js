@@ -245,7 +245,8 @@ function getMainInlineKeyboard() {
 function getMainReplyKeyboard() {
   return {
     keyboard: [
-      [{ text: '🪪 توثيق الهوية' }, { text: '💬 واتساب الدعم' }],
+      [{ text: '📱 فتح المحفظة' }, { text: '🪪 توثيق الهوية' }],
+      [{ text: '📊 صفقاتي' }, { text: '💬 واتساب الدعم' }],
       [{ text: '/verify' }, { text: '/menu' }]
     ],
     resize_keyboard: true,
@@ -296,6 +297,20 @@ async function sendMainMenu(chatId, name = 'User') {
     parse_mode: 'Markdown',
     reply_markup: getMainReplyKeyboard()
   });
+}
+
+function getKycDocumentLabel(documentType) {
+  return documentType === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية';
+}
+
+function getKycProgressText(payload = {}, step = '') {
+  const checks = {
+    front: payload.frontDone ? '✅' : '⏳',
+    back: payload.backDone ? '✅' : '⏳',
+    face: payload.faceDone ? '✅' : '⏳'
+  };
+
+  return `🪪 *توثيق الهوية الاحترافي*\n\n🌍 الدولة: *${payload.countryName || '-'}*\n📄 الوثيقة: *${getKycDocumentLabel(payload.documentType)}*\n\n${checks.front} صورة أمامية\n${checks.back} صورة خلفية\n${checks.face} صورة الوجه (سيلفي)\n\n${step}`;
 }
 
 // ===== Generate unique referral code =====
@@ -437,6 +452,26 @@ bot.onText(/^🪪\s*توثيق الهوية.*$/i, async (msg) => {
 bot.onText(/^💬\s*(واتساب الدعم|الدعم).*$/i, async (msg) => {
   await bot.sendMessage(msg.chat.id, '💬 واتساب الدعم:\nhttps://wa.me/18259710501', {
     reply_markup: getMainReplyKeyboard()
+  });
+});
+
+bot.onText(/^📱\s*فتح المحفظة.*$/i, async (msg) => {
+  await bot.sendMessage(msg.chat.id, '📱 افتح المحفظة من الزر التالي:', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]
+      ]
+    }
+  });
+});
+
+bot.onText(/^📊\s*صفقاتي.*$/i, async (msg) => {
+  await bot.sendMessage(msg.chat.id, '📊 يمكنك متابعة صفقاتك من داخل المحفظة مباشرة عبر الزر التالي:', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "✦ فتح المحفظة | Open Wallet ✦", web_app: { url: process.env.WEBAPP_URL } }]
+      ]
+    }
   });
 });
 
@@ -1258,9 +1293,12 @@ bot.on('callback_query', async (callbackQuery) => {
     const state = await getBotState(user.id, KYC_FLOW);
     const payload = state?.payload_json ? JSON.parse(state.payload_json) : {};
     payload.documentType = documentType;
+    payload.frontDone = false;
+    payload.backDone = false;
+    payload.faceDone = false;
     await upsertBotState(user.id, KYC_FLOW, 'await_front_image', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
     await bot.answerCallbackQuery(callbackQuery.id);
-    return bot.sendMessage(chatId, '📷 أرسل الآن *الصورة الأمامية* للوثيقة.', { parse_mode: 'Markdown' });
+    return bot.sendMessage(chatId, getKycProgressText(payload, '📷 أرسل الآن *الصورة الأمامية* للوثيقة.'), { parse_mode: 'Markdown' });
   }
 
   if (data === 'kyc_confirm') {
@@ -1273,11 +1311,14 @@ bot.on('callback_query', async (callbackQuery) => {
     if (!payload.requestId) {
       return bot.answerCallbackQuery(callbackQuery.id, { text: 'بيانات الطلب ناقصة' });
     }
+    const loading = await bot.sendMessage(chatId, '⏳ *جاري تدقيق الملفات وتجهيز طلب التوثيق...*\n\nيرجى الانتظار لحظات.', { parse_mode: 'Markdown' });
+    await new Promise((resolve) => setTimeout(resolve, 1800));
     await submitKycRequest(payload.requestId);
     await clearBotState(user.id, KYC_FLOW);
+    try { await bot.deleteMessage(chatId, String(loading.message_id)); } catch (e) {}
     await bot.answerCallbackQuery(callbackQuery.id, { text: 'تم إرسال الطلب' });
     try {
-      await bot.sendMessage(Number(ADMIN_ID), `🪪 طلب توثيق جديد\n\n👤 ${user.name || user.tg_id}\n🆔 ${user.tg_id}\n🌍 ${payload.countryName}\n📄 ${payload.documentType === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}`);
+      await bot.sendMessage(Number(ADMIN_ID), `🪪 طلب توثيق جديد\n\n👤 ${user.name || user.tg_id}\n🆔 ${user.tg_id}\n🌍 ${payload.countryName}\n📄 ${getKycDocumentLabel(payload.documentType)}\n🤳 صورة وجه: مرفقة`);
     } catch (e) {}
     return bot.sendMessage(chatId, '✅ تم إرسال طلب التوثيق إلى الإدارة للمراجعة.');
   }
@@ -1564,7 +1605,7 @@ bot.on('message', async (msg) => {
     const user = await getUserByTelegramId(msg.from.id);
     if (user) {
       const state = await getBotState(user.id, KYC_FLOW);
-      if (state && ['await_front_image', 'await_back_image'].includes(state.state)) {
+      if (state && ['await_front_image', 'await_back_image', 'await_face_image'].includes(state.state)) {
         try {
           const payload = state.payload_json ? JSON.parse(state.payload_json) : {};
           const draft = await ensureDraftKyc({
@@ -1576,7 +1617,7 @@ bot.on('message', async (msg) => {
           });
 
           payload.requestId = draft.id;
-          const side = state.state === 'await_front_image' ? 'front' : 'back';
+          const side = state.state === 'await_front_image' ? 'front' : state.state === 'await_back_image' ? 'back' : 'face';
           const photo = msg.photo[msg.photo.length - 1];
           const file = await bot.getFile(photo.file_id);
           const directory = await ensureKycDirectory(user.id, draft.id);
@@ -1589,12 +1630,21 @@ bot.on('message', async (msg) => {
           await updateKycFile(draft.id, side, targetPath, photo.file_id);
 
           if (side === 'front') {
+            payload.frontDone = true;
             await upsertBotState(user.id, KYC_FLOW, 'await_back_image', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
-            return bot.sendMessage(msg.chat.id, '✅ تم حفظ الصورة الأمامية. الآن أرسل *الصورة الخلفية*.', { parse_mode: 'Markdown' });
+            return bot.sendMessage(msg.chat.id, getKycProgressText(payload, '✅ تم حفظ الصورة الأمامية. الآن أرسل *الصورة الخلفية*.'), { parse_mode: 'Markdown' });
           }
 
+          if (side === 'back') {
+            payload.backDone = true;
+            await upsertBotState(user.id, KYC_FLOW, 'await_face_image', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+            return bot.sendMessage(msg.chat.id, getKycProgressText(payload, '🤳 ممتاز. الآن أرسل *صورة واضحة لوجهك* (سيلفي) لإكمال التوثيق.'), { parse_mode: 'Markdown' });
+          }
+
+          payload.faceDone = true;
+
           await upsertBotState(user.id, KYC_FLOW, 'confirm_submit', payload, new Date(Date.now() + 30 * 60 * 1000).toISOString());
-          return bot.sendMessage(msg.chat.id, `📋 *راجع البيانات قبل الإرسال*\n\n🌍 الدولة: ${payload.countryName}\n📄 الوثيقة: ${payload.documentType === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}\n🖼 تم استلام الأمامية والخلفية\n\nهل تريد الإرسال؟`, {
+          return bot.sendMessage(msg.chat.id, `${getKycProgressText(payload, '🎉 تم استلام كل الصور المطلوبة بنجاح.')}\n\n📋 *هل تريد تقديم طلب التوثيق الآن؟*`, {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [

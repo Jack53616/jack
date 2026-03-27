@@ -1,6 +1,5 @@
 export const COUNTRIES = [
   { code: "TR", name: "تركيا" },
-  { code: "SY", name: "سوريا" },
   { code: "SA", name: "السعودية" },
   { code: "AE", name: "الإمارات" },
   { code: "QA", name: "قطر" },

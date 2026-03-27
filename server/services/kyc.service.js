@@ -36,10 +36,18 @@ export const clearBotState = async (userId, flowName) => {
 
 export const ensureDraftKyc = async ({ userId, tgId, countryCode, countryName, documentType }) => {
   const existing = await query(
-    `SELECT id FROM kyc_verifications WHERE user_id = $1 AND status IN ('draft', 'pending') ORDER BY created_at DESC LIMIT 1`,
+    `SELECT id, status FROM kyc_verifications WHERE user_id = $1 AND status IN ('draft', 'pending') ORDER BY created_at DESC LIMIT 1`,
     [userId]
   );
   if (existing.rows.length > 0) {
+    if (existing.rows[0].status === 'draft') {
+      await query(
+        `UPDATE kyc_verifications
+         SET country_code = $1, country_name = $2, document_type = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [countryCode, countryName, documentType, existing.rows[0].id]
+      );
+    }
     return existing.rows[0];
   }
   const created = await query(

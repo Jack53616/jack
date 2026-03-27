@@ -129,7 +129,7 @@ app.get("/api/admin/kyc/:id/image/:side", async (req, res) => {
     if (!token || token !== process.env.ADMIN_TOKEN) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
-    const side = req.params.side === "back" ? "back" : "front";
+    const side = req.params.side === "back" ? "back" : req.params.side === "face" ? "face" : "front";
     const result = await pool.query(
       `SELECT ${side}_file_path AS file_path FROM kyc_verifications WHERE id = $1`,
       [req.params.id]

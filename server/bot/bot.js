@@ -428,6 +428,11 @@ Contact support if you believe this is an error.`, {
     }
   }
 
+  if (param === 'verify_identity') {
+    await sendMainMenu(chatId, name);
+    return startKycFlow(chatId, tgId);
+  }
+
   await sendMainMenu(chatId, name);
 });
 
@@ -1246,11 +1251,6 @@ bot.on('callback_query', async (callbackQuery) => {
   if (data === 'menu_kyc') {
     await bot.answerCallbackQuery(callbackQuery.id);
     return startKycFlow(chatId, callbackQuery.from.id);
-  }
-
-  if (param === 'verify_identity') {
-    await sendMainMenu(chatId, name);
-    return startKycFlow(chatId, tgId);
   }
 
   if (data.startsWith('kyc_page_')) {

@@ -2150,7 +2150,8 @@ export const getKycRequestById = async (req, res) => {
       request: {
         ...row,
         front_image_url: `/api/admin/kyc/${row.id}/image/front`,
-        back_image_url: `/api/admin/kyc/${row.id}/image/back`
+        back_image_url: `/api/admin/kyc/${row.id}/image/back`,
+        face_image_url: `/api/admin/kyc/${row.id}/image/face`
       }
     });
   } catch (error) {

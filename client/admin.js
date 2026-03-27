@@ -2138,6 +2138,7 @@ window.viewKycRequest = async (id) => {
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <a href="${item.front_image_url}" target="_blank" style="color:#58a6ff;">فتح الصورة الأمامية</a>
         <a href="${item.back_image_url}" target="_blank" style="color:#58a6ff;">فتح الصورة الخلفية</a>
+        <a href="${item.face_image_url}" target="_blank" style="color:#58a6ff;">فتح صورة الوجه</a>
       </div>
     </div>`;
   const modal = document.createElement('div');

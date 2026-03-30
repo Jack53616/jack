@@ -2126,19 +2126,20 @@ async function loadKycRequests() {
   `;
 }
 
-const fetchKycImageBlob = async (url) => {
-  try {
-    const res = await fetch(url, { headers: { 'x-admin-token': state.token } });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return URL.createObjectURL(blob);
-  } catch { return null; }
-};
-
 window.viewKycRequest = async (id) => {
   const r = await api(`/api/admin/kyc/${id}`);
   if (!r.ok) return toast('❌ ' + (r.error || 'خطأ'));
   const item = r.request;
+
+  const imgCard = (label, url) => {
+    if (!url) return `<div style="text-align:center;"><div style="color:#8b949e;margin-bottom:4px;font-size:12px;">${label}</div><div style="height:120px;background:#161b22;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;">غير متاح</div></div>`;
+    return `<div style="text-align:center;">
+      <div style="color:#8b949e;margin-bottom:4px;font-size:12px;">${label}</div>
+      <a href="${url}" target="_blank" title="فتح بالحجم الكامل">
+        <img src="${url}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid #30363d;" onerror="this.parentElement.parentElement.innerHTML='<div style=\\'height:120px;background:#161b22;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;\\'>تعذر التحميل</div>'">
+      </a>
+    </div>`;
+  };
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;';
@@ -2152,33 +2153,30 @@ window.viewKycRequest = async (id) => {
       <div><strong>الاسم الكامل:</strong> ${item.first_name || '-'} ${item.last_name || ''}</div>
       <div><strong>الدولة:</strong> ${item.country_name || '-'}</div>
       <div><strong>نوع الوثيقة:</strong> ${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
-      <div><strong>الحالة:</strong> ${item.status}</div>
+      <div><strong>الحالة:</strong> <span style="color:${item.status==='approved'?'#3fb950':item.status==='rejected'?'#f85149':'#e3b341'}">${item.status}</span></div>
+      ${item.rejection_reason ? `<div><strong>سبب الرفض:</strong> ${item.rejection_reason}</div>` : ''}
     </div>
-    <div id="kycImagesGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
-      <div style="text-align:center;"><div style="color:#8b949e;margin-bottom:4px;font-size:12px;">أمامية</div><div id="kyc-img-front" style="height:120px;background:#161b22;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;">جارٍ التحميل...</div></div>
-      <div style="text-align:center;"><div style="color:#8b949e;margin-bottom:4px;font-size:12px;">خلفية</div><div id="kyc-img-back" style="height:120px;background:#161b22;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;">جارٍ التحميل...</div></div>
-      <div style="text-align:center;"><div style="color:#8b949e;margin-bottom:4px;font-size:12px;">وجه</div><div id="kyc-img-face" style="height:120px;background:#161b22;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;">جارٍ التحميل...</div></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      ${imgCard('أمامية', item.front_image_url)}
+      ${imgCard('خلفية', item.back_image_url)}
+      ${imgCard('وجه', item.face_image_url)}
     </div>
+    ${item.status === 'pending' ? `<div style="display:flex;gap:8px;">
+      <button class="btn success" style="flex:1" onclick="approveKyc(${id});this.closest('.glass').parentElement.remove()">✅ قبول</button>
+      <button class="btn danger" style="flex:1" onclick="rejectKycFromModal(${id});this.closest('.glass').parentElement.remove()">❌ رفض</button>
+    </div>` : ''}
   </div>`;
   document.body.appendChild(modal);
-  modal.querySelector('#closeKycModal').addEventListener('click', () => { modal.remove(); });
+  modal.querySelector('#closeKycModal').addEventListener('click', () => modal.remove());
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+};
 
-  const loadImg = async (side, containerId) => {
-    const url = `/api/admin/kyc/${id}/image/${side}`;
-    const blobUrl = await fetchKycImageBlob(url);
-    const container = modal.querySelector(`#${containerId}`);
-    if (!container) return;
-    if (blobUrl) {
-      container.innerHTML = `<img src="${blobUrl}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;cursor:pointer;" onclick="window.open('${blobUrl}')">`;
-    } else {
-      container.textContent = 'غير متاح';
-    }
-  };
-
-  loadImg('front', 'kyc-img-front');
-  loadImg('back', 'kyc-img-back');
-  loadImg('face', 'kyc-img-face');
+window.rejectKycFromModal = async (id) => {
+  const reason = prompt('سبب الرفض:');
+  if (!reason) return;
+  const r = await api(`/api/admin/kyc/${id}/reject`, 'PUT', { reason });
+  if (r.ok) { toast('✅ تم رفض التوثيق'); loadKycRequests(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
 };
 
 window.approveKyc = async (id) => {

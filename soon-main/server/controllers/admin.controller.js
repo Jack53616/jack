@@ -2147,13 +2147,15 @@ export const getKycRequestById = async (req, res) => {
       return res.status(404).json({ ok: false, error: "KYC request not found" });
     }
     const row = result.rows[0];
+    const token = req.headers["x-admin-token"] || req.query.t || "";
+    const base = `/api/admin/kyc/${row.id}/image`;
     res.json({
       ok: true,
       request: {
         ...row,
-        front_image_url: `/api/admin/kyc/${row.id}/image/front`,
-        back_image_url: `/api/admin/kyc/${row.id}/image/back`,
-        face_image_url: `/api/admin/kyc/${row.id}/image/face`
+        front_image_url: `${base}/front?t=${encodeURIComponent(token)}`,
+        back_image_url:  `${base}/back?t=${encodeURIComponent(token)}`,
+        face_image_url:  `${base}/face?t=${encodeURIComponent(token)}`
       }
     });
   } catch (error) {

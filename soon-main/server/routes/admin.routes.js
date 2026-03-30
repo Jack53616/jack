@@ -10,7 +10,7 @@ const router = express.Router();
 
 // Middleware to verify admin token
 const verifyAdmin = (req, res, next) => {
-  const token = req.headers["x-admin-token"] || req.body.admin_token;
+  const token = req.headers["x-admin-token"] || req.body.admin_token || req.query.t;
   if (!token || token !== process.env.ADMIN_TOKEN) {
     logger.warn(`[ADMIN AUTH FAIL] IP: ${req.ip} | Path: ${req.path}`);
     return res.status(401).json({ ok: false, error: "Unauthorized" });

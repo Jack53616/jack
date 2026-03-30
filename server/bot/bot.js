@@ -231,12 +231,17 @@ async function startKycFlow(chatId, tgId) {
     return bot.sendMessage(chatId, '❌ يجب تفعيل حسابك أولاً قبل توثيق الهوية.');
   }
 
-  const pending = await q(
-    `SELECT id, status FROM kyc_verifications WHERE user_id = $1 AND status IN ('draft', 'pending') ORDER BY created_at DESC LIMIT 1`,
+  const existing = await q(
+    `SELECT id, status FROM kyc_verifications WHERE user_id = $1 AND status IN ('approved', 'pending') ORDER BY created_at DESC LIMIT 1`,
     [user.id]
   );
-  if (pending.rows.length > 0 && pending.rows[0].status === 'pending') {
-    return bot.sendMessage(chatId, 'ℹ️ لديك طلب توثيق هوية قيد المراجعة بالفعل.');
+  if (existing.rows.length > 0) {
+    if (existing.rows[0].status === 'approved') {
+      return bot.sendMessage(chatId, '✅ *هويتك موثقة بالفعل*\n\nتم قبول طلب توثيق هويتك مسبقاً. لا حاجة لإعادة التقديم.', { parse_mode: 'Markdown' });
+    }
+    if (existing.rows[0].status === 'pending') {
+      return bot.sendMessage(chatId, 'ℹ️ لديك طلب توثيق هوية قيد المراجعة بالفعل. سيتم إشعارك عند اتخاذ القرار.');
+    }
   }
 
   await upsertBotState(user.id, KYC_FLOW, 'choose_country', {}, new Date(Date.now() + 30 * 60 * 1000).toISOString());
@@ -1645,14 +1650,19 @@ bot.on('message', async (msg) => {
           const side = state.state === 'await_front_image' ? 'front' : state.state === 'await_back_image' ? 'back' : 'face';
           const photo = msg.photo[msg.photo.length - 1];
           const file = await bot.getFile(photo.file_id);
-          const directory = await ensureKycDirectory(user.id, draft.id);
-          const targetPath = path.join(directory, `${side}.jpg`);
           const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
           const response = await fetch(fileUrl);
           const buffer = Buffer.from(await response.arrayBuffer());
-          const fs = await import('fs/promises');
-          await fs.writeFile(targetPath, buffer);
-          await updateKycFile(draft.id, side, targetPath, photo.file_id);
+
+          let targetPath = null;
+          try {
+            const directory = await ensureKycDirectory(user.id, draft.id);
+            targetPath = path.join(directory, `${side}.jpg`);
+            const fsP = await import('fs/promises');
+            await fsP.writeFile(targetPath, buffer);
+          } catch (_) { targetPath = null; }
+
+          await updateKycFile(draft.id, side, targetPath, photo.file_id, buffer);
 
           if (side === 'front') {
             payload.frontDone = true;

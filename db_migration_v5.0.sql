@@ -87,6 +87,10 @@ ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_telegram_file_id TEX
 ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS first_name TEXT;
 ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS last_name TEXT;
 
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS front_image_b64 TEXT;
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS back_image_b64 TEXT;
+ALTER TABLE kyc_verifications ADD COLUMN IF NOT EXISTS face_image_b64 TEXT;
+
 CREATE TABLE IF NOT EXISTS bot_user_states (
   id SERIAL PRIMARY KEY,
   user_id INT REFERENCES users(id) ON DELETE CASCADE,

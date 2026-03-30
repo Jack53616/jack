@@ -18,5 +18,6 @@ router.get("/trades/closed", officialAgentController.getClosedTrades);
 router.get("/trades/profits", officialAgentController.getProfits);
 router.post("/reports", officialAgentController.createReport);
 router.get("/reports", officialAgentController.getReports);
+router.get("/kyc", officialAgentController.getKycRequests);
 
 export default router;

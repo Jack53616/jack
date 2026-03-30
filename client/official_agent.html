@@ -45,6 +45,7 @@
       <button class="tab-btn" data-tab="closed-trades">الصفقات المغلقة</button>
       <button class="tab-btn" data-tab="profits">الأرباح</button>
       <button class="tab-btn" data-tab="reports">البلاغات</button>
+      <button class="tab-btn" data-tab="kyc">توثيق الهوية</button>
     </div>
 
     <main class="content">
@@ -110,6 +111,14 @@
         <div class="card glass">
           <h3>📋 البلاغات السابقة</h3>
           <div id="reportsTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-kyc" class="tab-content">
+        <div class="card glass">
+          <h3>🪪 طلبات توثيق الهوية</h3>
+          <p style="color:var(--muted);font-size:13px;">للعرض فقط - الموافقة والرفض من لوحة المشرف</p>
+          <div id="agentKycTable" class="table-container"></div>
         </div>
       </section>
     </main>

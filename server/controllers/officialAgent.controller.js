@@ -286,3 +286,23 @@ export const getReports = async (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   }
 };
+
+export const getKycRequests = async (req, res) => {
+  try {
+    const statusFilter = req.query.status;
+    let sql = `SELECT k.id, k.user_id, k.tg_id, k.first_name, k.last_name, k.country_name, k.document_type, k.status, k.submitted_at, k.reviewed_at, u.name AS user_name
+       FROM kyc_verifications k
+       LEFT JOIN users u ON u.id = k.user_id
+       WHERE k.status != 'draft'`;
+    const params = [];
+    if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
+      params.push(statusFilter);
+      sql += ` AND k.status = $${params.length}`;
+    }
+    sql += ` ORDER BY COALESCE(k.submitted_at, k.created_at) DESC LIMIT 200`;
+    const result = await query(sql, params);
+    res.json({ ok: true, requests: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};

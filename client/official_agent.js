@@ -72,6 +72,7 @@ async function loadAll() {
     loadClosedTrades(),
     loadProfits(),
     loadReports(),
+    loadAgentKyc(),
   ]);
 }
 
@@ -261,6 +262,39 @@ async function submitReport() {
 $('#loginBtn').addEventListener('click', login);
 $('#logoutBtn').addEventListener('click', logout);
 $('#submitReportBtn').addEventListener('click', submitReport);
+
+async function loadAgentKyc(statusFilter = '') {
+  const url = statusFilter ? `/api/official-agent/kyc?status=${statusFilter}` : '/api/official-agent/kyc';
+  const r = await api(url);
+  const table = $('#agentKycTable');
+  if (!table) return;
+  if (!r.ok) { table.innerHTML = '<div style="color:#f85149;">خطأ في تحميل البيانات</div>'; return; }
+  const requests = r.requests || [];
+  const badge = (s) => {
+    const m = { pending: ['قيد المراجعة', '#e3b341'], approved: ['مقبول', '#3fb950'], rejected: ['مرفوض', '#f85149'] };
+    const [l, c] = m[s] || [s, '#8b949e'];
+    return `<span style="color:${c};font-weight:600;">${l}</span>`;
+  };
+  table.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="mini-btn ${!statusFilter?'active':''}" onclick="loadAgentKyc('')">الكل</button>
+      <button class="mini-btn ${statusFilter==='pending'?'active':''}" onclick="loadAgentKyc('pending')">قيد المراجعة</button>
+      <button class="mini-btn ${statusFilter==='approved'?'active':''}" onclick="loadAgentKyc('approved')">مقبول</button>
+      <button class="mini-btn ${statusFilter==='rejected'?'active':''}" onclick="loadAgentKyc('rejected')">مرفوض</button>
+    </div>
+    <div class="table-row header" style="grid-template-columns: 50px 1fr 120px 120px 100px;">
+      <div>#</div><div>المستخدم</div><div>الدولة</div><div>الوثيقة</div><div>الحالة</div>
+    </div>
+    ${requests.length === 0 ? '<div class="table-row"><div style="grid-column:1/-1;text-align:center;color:#8b949e;">لا توجد طلبات</div></div>' : requests.map(item => `
+      <div class="table-row" style="grid-template-columns: 50px 1fr 120px 120px 100px;">
+        <div>${item.id}</div>
+        <div><strong>${item.user_name || '-'}</strong><br><small>${item.first_name || '-'} ${item.last_name || ''}</small><br><small style="color:#8b949e">${item.tg_id}</small></div>
+        <div>${item.country_name || '-'}</div>
+        <div>${item.document_type === 'driving_license' ? 'رخصة' : 'هوية'}</div>
+        <div>${badge(item.status)}</div>
+      </div>`).join('')}`;
+}
+window.loadAgentKyc = loadAgentKyc;
 
 $$('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {

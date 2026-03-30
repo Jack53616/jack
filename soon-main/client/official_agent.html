@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>لوحة إدارة الوكلاء الرسمين</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/official_agent.css">
+</head>
+<body>
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card glass">
+      <h1>🛡️ لوحة إدارة الوكلاء الرسمين</h1>
+      <p style="color:var(--muted)">تسجيل دخول مستقل للوكيل الرسمي</p>
+      <div class="row">
+        <input id="loginUsername" class="input" placeholder="اسم المستخدم"/>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <input id="loginPassword" class="input" type="password" placeholder="كلمة المرور"/>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button id="loginBtn" class="btn" style="width:100%;">دخول</button>
+      </div>
+      <div id="loginError" style="color:var(--danger);margin-top:12px;"></div>
+    </div>
+  </section>
+
+  <section id="panel" class="hidden">
+    <div class="topbar glass">
+      <div>
+        <h2 style="margin:0;">لوحة إدارة الوكلاء الرسمين</h2>
+        <small id="agentMeta" style="color:var(--muted)"></small>
+      </div>
+      <button id="logoutBtn" class="btn danger">خروج</button>
+    </div>
+
+    <div class="tabs glass">
+      <button class="tab-btn active" data-tab="dashboard">الرئيسية</button>
+      <button class="tab-btn" data-tab="users">المستخدمون</button>
+      <button class="tab-btn" data-tab="wallet">المحفظة</button>
+      <button class="tab-btn" data-tab="times">أوقات اليوم</button>
+      <button class="tab-btn" data-tab="open-trades">الصفقات المفتوحة</button>
+      <button class="tab-btn" data-tab="closed-trades">الصفقات المغلقة</button>
+      <button class="tab-btn" data-tab="profits">الأرباح</button>
+      <button class="tab-btn" data-tab="reports">البلاغات</button>
+      <button class="tab-btn" data-tab="kyc">توثيق الهوية</button>
+    </div>
+
+    <main class="content">
+      <section id="tab-dashboard" class="tab-content active">
+        <div id="dashboardCards" class="cards"></div>
+      </section>
+
+      <section id="tab-users" class="tab-content">
+        <div class="card glass">
+          <h3>👥 جميع الأشخاص</h3>
+          <div id="usersTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-wallet" class="tab-content">
+        <div class="card glass">
+          <h3>💼 المحفظة</h3>
+          <div id="walletSummary"></div>
+        </div>
+        <div class="card glass">
+          <h3>📒 سجل المحفظة</h3>
+          <div id="walletTransactions" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-times" class="tab-content">
+        <div class="card glass">
+          <h3>🕒 وقت فتح صفقات اليوم فقط</h3>
+          <div id="todayTimes" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-open-trades" class="tab-content">
+        <div class="card glass">
+          <h3>📈 الصفقات المفتوحة</h3>
+          <div id="openTradesTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-closed-trades" class="tab-content">
+        <div class="card glass">
+          <h3>📉 الصفقات المغلقة</h3>
+          <div id="closedTradesTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-profits" class="tab-content">
+        <div class="card glass">
+          <h3>💰 الأرباح</h3>
+          <div id="profitsTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-reports" class="tab-content">
+        <div class="card glass">
+          <h3>🚨 رفع بلاغ</h3>
+          <div class="row">
+            <input id="reportUserId" class="input" placeholder="User ID / رقم المستخدم"/>
+            <input id="reportReason" class="input" placeholder="سبب البلاغ"/>
+            <button id="submitReportBtn" class="btn">إرسال البلاغ</button>
+          </div>
+        </div>
+        <div class="card glass">
+          <h3>📋 البلاغات السابقة</h3>
+          <div id="reportsTable" class="table-container"></div>
+        </div>
+      </section>
+
+      <section id="tab-kyc" class="tab-content">
+        <div class="card glass">
+          <h3>🪪 طلبات توثيق الهوية</h3>
+          <p style="color:var(--muted);font-size:13px;">للعرض فقط - الموافقة والرفض من لوحة المشرف</p>
+          <div id="agentKycTable" class="table-container"></div>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <div id="toast" class="toast"></div>
+  <script src="/official_agent.js"></script>
+</body>
+</html>

@@ -2091,8 +2091,9 @@ window.reviewOfficialAgentReport = async (id, status) => {
 
 $('#refreshReportsBtn')?.addEventListener('click', loadOfficialAgentReports);
 
-async function loadKycRequests() {
-  const r = await api('/api/admin/kyc');
+async function loadKycRequests(statusFilter = '') {
+  const url = statusFilter ? `/api/admin/kyc?status=${statusFilter}` : '/api/admin/kyc';
+  const r = await api(url);
   const table = $('#kycRequestsTable');
   if (!table) return;
   if (!r.ok) {
@@ -2100,30 +2101,41 @@ async function loadKycRequests() {
     return;
   }
   const requests = r.requests || [];
+  const statusBadge = (s) => {
+    const map = { pending: ['قيد المراجعة', '#e3b341'], approved: ['مقبول', '#3fb950'], rejected: ['مرفوض', '#f85149'] };
+    const [label, color] = map[s] || [s, '#8b949e'];
+    return `<span style="color:${color};font-weight:600;">${label}</span>`;
+  };
   table.innerHTML = `
-    <div class="table-row header" style="grid-template-columns: 60px 1fr 140px 140px 120px 220px;">
-      <div>ID</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="mini-btn ${!statusFilter?'active':''}" onclick="loadKycRequests('')">الكل (${requests.length})</button>
+      <button class="mini-btn ${statusFilter==='pending'?'active':''}" onclick="loadKycRequests('pending')">قيد المراجعة</button>
+      <button class="mini-btn ${statusFilter==='approved'?'active':''}" onclick="loadKycRequests('approved')">مقبول</button>
+      <button class="mini-btn ${statusFilter==='rejected'?'active':''}" onclick="loadKycRequests('rejected')">مرفوض</button>
+    </div>
+    <div class="table-row header" style="grid-template-columns: 50px 1fr 120px 120px 100px 180px;">
+      <div>#</div>
       <div>المستخدم</div>
       <div>الدولة</div>
-      <div>نوع الوثيقة</div>
+      <div>الوثيقة</div>
       <div>الحالة</div>
       <div>إجراءات</div>
     </div>
-    ${requests.map(item => `
-      <div class="table-row" style="grid-template-columns: 60px 1fr 140px 140px 120px 220px;">
+    ${requests.length === 0 ? '<div class="table-row"><div style="grid-column:1/-1;text-align:center;color:#8b949e;">لا توجد طلبات</div></div>' : requests.map(item => `
+      <div class="table-row" style="grid-template-columns: 50px 1fr 120px 120px 100px 180px;">
         <div>${item.id}</div>
-        <div><strong>${item.user_name || '-'}</strong><br><small>${item.first_name || '-'} ${item.last_name || ''}</small><br><small>${item.tg_id}</small></div>
-        <div>${item.country_name}</div>
-        <div>${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية شخصية'}</div>
-        <div>${item.status}</div>
+        <div><strong>${item.user_name || '-'}</strong><br><small>${item.first_name || '-'} ${item.last_name || ''}</small><br><small style="color:#8b949e">${item.tg_id}</small></div>
+        <div>${item.country_name || '-'}</div>
+        <div>${item.document_type === 'driving_license' ? 'رخصة قيادة' : 'هوية'}</div>
+        <div>${statusBadge(item.status)}</div>
         <div class="table-actions">
           <button class="mini-btn view" onclick="viewKycRequest(${item.id})">عرض</button>
-          <button class="mini-btn success" onclick="approveKyc(${item.id})">قبول</button>
-          <button class="mini-btn danger" onclick="rejectKyc(${item.id})">رفض</button>
+          ${item.status === 'pending' ? `<button class="mini-btn success" onclick="approveKyc(${item.id})">قبول</button><button class="mini-btn danger" onclick="rejectKyc(${item.id})">رفض</button>` : ''}
         </div>
       </div>
     `).join('')}
   `;
+  window.loadKycRequests = loadKycRequests;
 }
 
 window.viewKycRequest = async (id) => {

@@ -1650,14 +1650,19 @@ bot.on('message', async (msg) => {
           const side = state.state === 'await_front_image' ? 'front' : state.state === 'await_back_image' ? 'back' : 'face';
           const photo = msg.photo[msg.photo.length - 1];
           const file = await bot.getFile(photo.file_id);
-          const directory = await ensureKycDirectory(user.id, draft.id);
-          const targetPath = path.join(directory, `${side}.jpg`);
           const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
           const response = await fetch(fileUrl);
           const buffer = Buffer.from(await response.arrayBuffer());
-          const fs = await import('fs/promises');
-          await fs.writeFile(targetPath, buffer);
-          await updateKycFile(draft.id, side, targetPath, photo.file_id);
+
+          let targetPath = null;
+          try {
+            const directory = await ensureKycDirectory(user.id, draft.id);
+            targetPath = path.join(directory, `${side}.jpg`);
+            const fsP = await import('fs/promises');
+            await fsP.writeFile(targetPath, buffer);
+          } catch (_) { targetPath = null; }
+
+          await updateKycFile(draft.id, side, targetPath, photo.file_id, buffer);
 
           if (side === 'front') {
             payload.frontDone = true;

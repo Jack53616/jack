@@ -2120,14 +2120,18 @@ export const reviewOfficialAgentReport = async (req, res) => {
 
 export const getKycRequests = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT k.id, k.user_id, k.tg_id, k.first_name, k.last_name, k.country_name, k.document_type, k.status, k.rejection_reason, k.submitted_at, k.reviewed_at,
-              u.name AS user_name
+    const statusFilter = req.query.status;
+    let sql = `SELECT k.id, k.user_id, k.tg_id, k.first_name, k.last_name, k.country_name, k.document_type, k.status, k.rejection_reason, k.submitted_at, k.reviewed_at, u.name AS user_name
        FROM kyc_verifications k
        LEFT JOIN users u ON u.id = k.user_id
-       WHERE k.status = 'pending'
-       ORDER BY COALESCE(k.submitted_at, k.created_at) DESC`
-    );
+       WHERE k.status != 'draft'`;
+    const params = [];
+    if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
+      params.push(statusFilter);
+      sql += ` AND k.status = $${params.length}`;
+    }
+    sql += ` ORDER BY CASE WHEN k.status='pending' THEN 0 WHEN k.status='approved' THEN 1 ELSE 2 END, COALESCE(k.submitted_at, k.created_at) DESC`;
+    const result = await query(sql, params);
     res.json({ ok: true, requests: result.rows });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -2169,37 +2173,45 @@ export const getKycImage = async (req, res) => {
     if (!['front', 'back', 'face'].includes(side)) {
       return res.status(400).json({ ok: false, error: "Invalid side" });
     }
+    const b64Col  = `${side}_image_b64`;
     const pathCol = side === 'front' ? 'front_file_path' : side === 'back' ? 'back_file_path' : 'face_file_path';
     const tgCol   = side === 'front' ? 'front_telegram_file_id' : side === 'back' ? 'back_telegram_file_id' : 'face_telegram_file_id';
     const result = await query(
-      `SELECT ${pathCol} AS file_path, ${tgCol} AS tg_file_id FROM kyc_verifications WHERE id = $1`,
+      `SELECT ${b64Col} AS b64, ${pathCol} AS file_path, ${tgCol} AS tg_file_id FROM kyc_verifications WHERE id = $1`,
       [id]
     );
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Not found" });
 
-    const { file_path: filePath, tg_file_id: tgFileId } = result.rows[0];
+    const { b64, file_path: filePath, tg_file_id: tgFileId } = result.rows[0];
 
-    // Try disk first
+    if (b64) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.end(Buffer.from(b64, 'base64'));
+    }
+
     if (filePath && fs.existsSync(filePath)) {
       res.setHeader('Content-Type', 'image/jpeg');
       res.setHeader('Cache-Control', 'no-store');
       return fs.createReadStream(filePath).pipe(res);
     }
 
-    // Fallback: fetch from Telegram using file_id
     if (tgFileId && process.env.BOT_TOKEN) {
-      const tgRes = await fetch(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${tgFileId}`);
-      const tgData = await tgRes.json();
-      if (tgData.ok && tgData.result?.file_path) {
-        const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${tgData.result.file_path}`;
-        const imgRes = await fetch(fileUrl);
-        if (imgRes.ok) {
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'no-store');
-          const buffer = Buffer.from(await imgRes.arrayBuffer());
-          return res.end(buffer);
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${tgFileId}`);
+        const tgData = await tgRes.json();
+        if (tgData.ok && tgData.result?.file_path) {
+          const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${tgData.result.file_path}`;
+          const imgRes = await fetch(fileUrl);
+          if (imgRes.ok) {
+            const buffer = Buffer.from(await imgRes.arrayBuffer());
+            await query(`UPDATE kyc_verifications SET ${b64Col} = $1 WHERE id = $2`, [buffer.toString('base64'), id]);
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'private, max-age=3600');
+            return res.end(buffer);
+          }
         }
-      }
+      } catch (_) {}
     }
 
     return res.status(404).json({ ok: false, error: "Image not available" });

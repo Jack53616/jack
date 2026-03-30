@@ -2167,16 +2167,40 @@ export const getKycImage = async (req, res) => {
     if (!['front', 'back', 'face'].includes(side)) {
       return res.status(400).json({ ok: false, error: "Invalid side" });
     }
-    const col = side === 'front' ? 'front_file_path' : side === 'back' ? 'back_file_path' : 'face_file_path';
-    const result = await query(`SELECT ${col} AS file_path FROM kyc_verifications WHERE id = $1`, [id]);
+    const pathCol = side === 'front' ? 'front_file_path' : side === 'back' ? 'back_file_path' : 'face_file_path';
+    const tgCol   = side === 'front' ? 'front_telegram_file_id' : side === 'back' ? 'back_telegram_file_id' : 'face_telegram_file_id';
+    const result = await query(
+      `SELECT ${pathCol} AS file_path, ${tgCol} AS tg_file_id FROM kyc_verifications WHERE id = $1`,
+      [id]
+    );
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: "Not found" });
-    const filePath = result.rows[0].file_path;
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({ ok: false, error: "Image not found on server" });
+
+    const { file_path: filePath, tg_file_id: tgFileId } = result.rows[0];
+
+    // Try disk first
+    if (filePath && fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'no-store');
+      return fs.createReadStream(filePath).pipe(res);
     }
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'no-store');
-    fs.createReadStream(filePath).pipe(res);
+
+    // Fallback: fetch from Telegram using file_id
+    if (tgFileId && process.env.BOT_TOKEN) {
+      const tgRes = await fetch(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${tgFileId}`);
+      const tgData = await tgRes.json();
+      if (tgData.ok && tgData.result?.file_path) {
+        const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${tgData.result.file_path}`;
+        const imgRes = await fetch(fileUrl);
+        if (imgRes.ok) {
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Cache-Control', 'no-store');
+          const buffer = Buffer.from(await imgRes.arrayBuffer());
+          return res.end(buffer);
+        }
+      }
+    }
+
+    return res.status(404).json({ ok: false, error: "Image not available" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

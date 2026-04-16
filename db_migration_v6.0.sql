@@ -35,8 +35,28 @@ BEGIN
   END IF;
 END $$;
 
--- 4. Indexes
+-- 4. Referral deposit confirmation columns
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN DEFAULT FALSE;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS deposit_amount NUMERIC(18,2) DEFAULT 0;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS credited_at TIMESTAMPTZ;
+
+-- 5. KYC verified display column
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_verified BOOLEAN DEFAULT FALSE;
+
+-- 5. Custom IDs table for separate trade management
+CREATE TABLE IF NOT EXISTS custom_trade_ids (
+  id SERIAL PRIMARY KEY,
+  tg_id BIGINT NOT NULL UNIQUE,
+  label TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Indexes
 CREATE INDEX IF NOT EXISTS idx_user_transfers_from ON user_transfers(from_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_transfers_to ON user_transfers(to_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_transfers_status ON user_transfers(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_ban_expires ON users(ban_expires) WHERE ban_expires IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_custom_trade_ids_active ON custom_trade_ids(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_trades_history_daily ON trades_history(closed_at DESC);

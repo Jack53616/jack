@@ -49,6 +49,8 @@
       <button class="tab-btn" data-tab="reports">🚨 البلاغات</button>
       <button class="tab-btn" data-tab="kyc">🪪 توثيق الهوية</button>
       <button class="tab-btn" data-tab="transfers">🔄 التحويلات</button>
+      <button class="tab-btn" data-tab="ranking">🏅 التنصيف اليومي</button>
+      <button class="tab-btn" data-tab="custom-ids">🆔 حسابات مخصصة</button>
       <button class="tab-btn" data-tab="rewards">🎁 المكافآت</button>
       <button class="tab-btn" data-tab="sessions">🔐 الجلسات</button>
       <button class="tab-btn" data-tab="maint">🔧 الصيانة</button>
@@ -355,6 +357,67 @@
             </div>
           </div>
           <div id="transfersList" class="table-container"></div>
+        </div>
+      </section>
+
+      <!-- Daily Ranking Tab -->
+      <section id="tab-ranking" class="tab-content">
+        <div class="card glass" style="border: 2px solid rgba(255,215,0,0.3);">
+          <div class="card-header">
+            <h3>🏅 تنصيف الأعضاء اليومي</h3>
+            <button id="refreshRankingBtn" class="btn-small">🔄 تحديث</button>
+          </div>
+          <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">يتم تحديثه تلقائياً كل يوم — يعرض ترتيب الأعضاء حسب الأرباح والخسائر اليومية</p>
+          <div id="dailyRankingList" class="table-container"></div>
+        </div>
+      </section>
+
+      <!-- Custom Trade IDs Tab -->
+      <section id="tab-custom-ids" class="tab-content">
+        <div class="card glass" style="border: 2px solid rgba(0,102,255,0.3);">
+          <div class="card-header">
+            <h3>🆔 حسابات مخصصة (IDs)</h3>
+          </div>
+          <div class="action-section">
+            <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
+              أضف Telegram IDs لقائمة خاصة يمكنك فتح صفقات لهم بشكل منفصل
+            </p>
+            <div class="action-row">
+              <input id="customIdInput" class="input" placeholder="Telegram ID"/>
+              <input id="customIdLabel" class="input" placeholder="وصف (اختياري)"/>
+              <button id="addCustomIdBtn" class="btn success">➕ إضافة</button>
+            </div>
+          </div>
+          <div id="customIdsList" class="table-container" style="margin-top: 16px;"></div>
+        </div>
+
+        <div class="card glass" style="margin-top: 16px; border: 2px solid rgba(163,113,247,0.3);">
+          <div class="card-header">
+            <h3>🚀 فتح صفقة لحسابات مخصصة</h3>
+          </div>
+          <div class="action-section">
+            <div class="action-row">
+              <input id="cidTradeAmount" type="number" class="input small" placeholder="الربح/الخسارة المتوقع" value="50"/>
+              <select id="cidTradeDurationUnit" class="input small">
+                <option value="minutes">دقائق</option>
+                <option value="hours">ساعات</option>
+              </select>
+              <input id="cidTradeDuration" type="number" class="input small" placeholder="المدة" value="5"/>
+            </div>
+            <div class="action-row" style="margin-top: 8px;">
+              <select id="cidTradeDirection" class="input small">
+                <option value="random">🎲 عشوائي</option>
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </select>
+              <select id="cidTradeSpeed" class="input small">
+                <option value="normal">عادي</option>
+                <option value="fast">⚡ سريع</option>
+                <option value="turbo">🚀 تيربو</option>
+              </select>
+              <button id="openCidTradeBtn" class="btn success" style="flex:1;">🚀 فتح صفقة للجميع</button>
+            </div>
+          </div>
         </div>
       </section>
 

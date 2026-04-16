@@ -103,6 +103,21 @@ router.get("/transfers", adminController.getAdminTransfers);
 router.post("/transfer/approve", adminController.approveTransfer);
 router.post("/transfer/reject", adminController.rejectTransfer);
 
+// ===== Daily Ranking =====
+router.get("/daily-ranking", adminController.getDailyRanking);
+
+// ===== Referral Deposit Confirmation =====
+router.post("/referral/confirm-deposit", adminController.confirmReferralDeposit);
+
+// ===== Custom Trade IDs =====
+router.get("/custom-trade-ids", adminController.getCustomTradeIds);
+router.post("/custom-trade-ids/add", adminController.addCustomTradeId);
+router.post("/custom-trade-ids/remove", adminController.removeCustomTradeId);
+router.post("/custom-trade-ids/open-trade", adminController.openTradeForCustomIds);
+
+// ===== Manual Trade Close with Result =====
+router.post("/trade/close-manual", adminController.closeTradeManual);
+
 // ===== Fee Management =====
 router.get("/user/fee/:user_id", walletController.getUserFeeInfo);
 router.post("/user/fee/set", walletController.setUserFeeOverride);

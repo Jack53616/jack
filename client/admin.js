@@ -90,6 +90,8 @@ function loadAll() {
   loadWithdrawals();
   loadTrades();
   loadTransfers();
+  loadDailyRanking();
+  loadCustomTradeIds();
   loadSettings();
   loadMassTrades();
   loadTodayScheduled();
@@ -503,7 +505,7 @@ window.viewUserReferrals = async (userId, userName) => {
             <div style="color:var(--muted);">${i + 1}</div>
             <div>${ref.referred_name || '-'}</div>
             <div style="font-family:monospace;font-size:12px;">${ref.referred_tg_id || '-'}</div>
-            <div>${ref.status === 'credited' ? '<span style="color:var(--success);">✅ مُكافأ</span>' : '<span style="color:#f0ad4e;">🔄 معلّق</span>'}</div>
+            <div>${ref.status === 'credited' ? '<span style="color:var(--success);">✅ مُكافأ</span>' : `<span style="color:#f0ad4e;">🔄 معلّق</span> <button class="mini-btn view" onclick="confirmReferralDeposit(${ref.id})" style="font-size:10px;padding:2px 6px;margin-right:4px;">✅ تأكيد إيداع</button>`}</div>
             <div style="font-size:12px;color:var(--muted);">${new Date(ref.created_at).toLocaleDateString('ar')}</div>
           </div>
         `).join('')}
@@ -652,7 +654,7 @@ async function loadTrades() {
   
   const trs = r.data || [];
   $('#trs').innerHTML = `
-    <div class="table-row header">
+    <div class="table-row header" style="grid-template-columns: 50px 120px 80px 90px 80px 200px;">
       <div>ID</div>
       <div>المستخدم</div>
       <div>الرمز</div>
@@ -661,14 +663,18 @@ async function loadTrades() {
       <div>إجراءات</div>
     </div>
     ${trs.map(t => `
-      <div class="table-row">
+      <div class="table-row" style="grid-template-columns: 50px 120px 80px 90px 80px 200px;">
         <div>${t.id}</div>
         <div>${t.user_name || t.user_id}</div>
         <div>${t.symbol || 'XAUUSD'}</div>
         <div style="color: ${Number(t.pnl) >= 0 ? 'var(--success)' : 'var(--danger)'}">$${Number(t.pnl || 0).toFixed(2)}</div>
         <div>${t.status === 'open' ? '✅ مفتوحة' : '🔒 مغلقة'}</div>
-        <div class="table-actions">
-          ${t.status === 'open' ? `<button class="mini-btn reject" onclick="closeTrade(${t.id})">إغلاق</button>` : '-'}
+        <div class="table-actions" style="display:flex;gap:4px;flex-wrap:wrap;">
+          ${t.status === 'open' ? `
+            <button class="mini-btn view" onclick="closeTradeManual(${t.id}, 'profit')" title="إغلاق على ربح">✅ ربح</button>
+            <button class="mini-btn reject" onclick="closeTradeManual(${t.id}, 'loss')" title="إغلاق على خسارة">❌ خسارة</button>
+            <button class="mini-btn" onclick="closeTradeManual(${t.id}, 'current')" style="background:rgba(255,255,255,0.1);" title="إغلاق على الحالي">🔒 حالي</button>
+          ` : '-'}
         </div>
       </div>
     `).join('')}
@@ -688,6 +694,139 @@ window.closeTrade = async (id) => {
   if (!confirm('هل أنت متأكد من إغلاق الصفقة؟')) return;
   const r = await api('/api/admin/trade/close', 'POST', { trade_id: id });
   if (r.ok) { toast('✅ تم إغلاق الصفقة'); loadTrades(); loadDashboard(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+window.closeTradeManual = async (id, resultType) => {
+  let customPnl = undefined;
+  if (resultType === 'profit') {
+    const val = prompt('حدد مبلغ الربح (اتركه فارغاً لاستخدام الربح الحالي):');
+    if (val === null) return;
+    if (val.trim() !== '') customPnl = Number(val);
+  } else if (resultType === 'loss') {
+    const val = prompt('حدد مبلغ الخسارة (اتركه فارغاً لاستخدام القيمة الحالية):');
+    if (val === null) return;
+    if (val.trim() !== '') customPnl = Number(val);
+  }
+
+  if (!confirm(`إغلاق الصفقة #${id} على ${resultType === 'profit' ? 'ربح' : resultType === 'loss' ? 'خسارة' : 'القيمة الحالية'}؟`)) return;
+
+  const body = { trade_id: id, result_type: resultType };
+  if (customPnl !== undefined) body.custom_pnl = customPnl;
+
+  const r = await api('/api/admin/trade/close-manual', 'POST', body);
+  if (r.ok) {
+    const pnl = Number(r.pnl || 0);
+    toast(`✅ تم إغلاق الصفقة: ${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}`);
+    loadTrades(); loadDashboard();
+  } else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+// ===== DAILY MEMBER RANKING =====
+async function loadDailyRanking() {
+  const r = await api('/api/admin/daily-ranking');
+  if (!r.ok) return;
+
+  const members = r.data || [];
+  $('#dailyRankingList').innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 50px 1fr 100px 100px 100px 80px;">
+      <div>#</div>
+      <div>الاسم</div>
+      <div>الربح اليومي</div>
+      <div>الخسارة اليومية</div>
+      <div>الصافي</div>
+      <div>عدد الصفقات</div>
+    </div>
+    ${members.map((m, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+      const netColor = Number(m.daily_net) >= 0 ? 'var(--success)' : 'var(--danger)';
+      return `
+        <div class="table-row" style="grid-template-columns: 50px 1fr 100px 100px 100px 80px;${i < 3 ? 'background:rgba(255,215,0,0.05);' : ''}">
+          <div style="font-size:${i < 3 ? '18px' : '14px'};">${medal}</div>
+          <div>${m.name || 'مستخدم ' + String(m.tg_id).slice(-4)}</div>
+          <div style="color: var(--success); font-weight: 600;">+$${Number(m.daily_profit || 0).toFixed(2)}</div>
+          <div style="color: var(--danger); font-weight: 600;">-$${Number(m.daily_loss || 0).toFixed(2)}</div>
+          <div style="color: ${netColor}; font-weight: 700;">${Number(m.daily_net) >= 0 ? '+' : ''}$${Number(m.daily_net || 0).toFixed(2)}</div>
+          <div>${m.trade_count || 0}</div>
+        </div>
+      `;
+    }).join('')}
+    ${members.length === 0 ? '<div style="padding: 20px; text-align: center; color: var(--muted);">لا توجد صفقات مغلقة اليوم</div>' : ''}
+  `;
+}
+
+$('#refreshRankingBtn')?.addEventListener('click', () => loadDailyRanking());
+
+// ===== CUSTOM TRADE IDS =====
+async function loadCustomTradeIds() {
+  const r = await api('/api/admin/custom-trade-ids');
+  if (!r.ok) return;
+
+  const ids = r.data || [];
+  $('#customIdsList').innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 50px 120px 1fr 100px 100px;">
+      <div>#</div>
+      <div>Telegram ID</div>
+      <div>الوصف</div>
+      <div>الاسم</div>
+      <div>إجراءات</div>
+    </div>
+    ${ids.map((item, i) => `
+      <div class="table-row" style="grid-template-columns: 50px 120px 1fr 100px 100px;">
+        <div>${i + 1}</div>
+        <div style="font-family:monospace;">${item.tg_id}</div>
+        <div style="color:var(--muted);">${item.label || '-'}</div>
+        <div>${item.name || '-'}</div>
+        <div><button class="mini-btn reject" onclick="removeCustomId(${item.tg_id})">حذف</button></div>
+      </div>
+    `).join('')}
+    ${ids.length === 0 ? '<div style="padding: 20px; text-align: center; color: var(--muted);">لا توجد حسابات مخصصة</div>' : ''}
+  `;
+}
+
+$('#addCustomIdBtn')?.addEventListener('click', async () => {
+  const tg_id = $('#customIdInput')?.value?.trim();
+  const label = $('#customIdLabel')?.value?.trim();
+  if (!tg_id) return toast('أدخل Telegram ID');
+  const r = await api('/api/admin/custom-trade-ids/add', 'POST', { tg_id: Number(tg_id), label });
+  if (r.ok) { toast('✅ تمت الإضافة'); $('#customIdInput').value = ''; $('#customIdLabel').value = ''; loadCustomTradeIds(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+});
+
+window.removeCustomId = async (tgId) => {
+  if (!confirm('حذف هذا الحساب من القائمة؟')) return;
+  const r = await api('/api/admin/custom-trade-ids/remove', 'POST', { tg_id: tgId });
+  if (r.ok) { toast('✅ تم الحذف'); loadCustomTradeIds(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+$('#openCidTradeBtn')?.addEventListener('click', async () => {
+  const idsResult = await api('/api/admin/custom-trade-ids');
+  if (!idsResult.ok || !idsResult.data?.length) return toast('❌ لا توجد حسابات مخصصة مضافة');
+
+  const tg_ids = idsResult.data.map(i => i.tg_id);
+  const target_pnl = Number($('#cidTradeAmount')?.value || 50);
+  const durationVal = Number($('#cidTradeDuration')?.value || 5);
+  const durationUnit = $('#cidTradeDurationUnit')?.value || 'minutes';
+  const direction = $('#cidTradeDirection')?.value || 'random';
+  const speed = $('#cidTradeSpeed')?.value || 'normal';
+
+  const body = { tg_ids, target_pnl, direction, speed };
+  if (durationUnit === 'minutes') body.duration_minutes = durationVal;
+  else body.duration_hours = durationVal;
+
+  if (!confirm(`فتح صفقة لـ ${tg_ids.length} حساب مخصص؟`)) return;
+  const r = await api('/api/admin/custom-trade-ids/open-trade', 'POST', body);
+  if (r.ok) { toast('✅ ' + r.message); loadTrades(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+});
+
+// ===== REFERRAL CONFIRM DEPOSIT =====
+window.confirmReferralDeposit = async (refId) => {
+  const amount = prompt('حدد مبلغ الإيداع ($500 أو $1000):');
+  if (!amount) return;
+  const r = await api('/api/admin/referral/confirm-deposit', 'POST', { referral_id: refId, deposit_amount: Number(amount) });
+  if (r.ok) { toast('✅ ' + r.message); loadReferralStats(); }
   else toast('❌ ' + (r.error || 'خطأ'));
 };
 

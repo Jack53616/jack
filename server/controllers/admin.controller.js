@@ -2240,6 +2240,7 @@ export const approveKycRequest = async (req, res) => {
        RETURNING *`,
       [req.params.id]
     );
+    await query("UPDATE users SET kyc_verified = TRUE WHERE tg_id = $1", [existing.rows[0].tg_id]);
     try {
       await bot.sendMessage(Number(existing.rows[0].tg_id), '✅ *تم قبول توثيق الهوية الخاص بك*\n\nيمكنك الآن متابعة استخدام المنصة بشكل طبيعي.', { parse_mode: 'Markdown' });
     } catch (e) {}
@@ -2387,6 +2388,204 @@ export const rejectTransfer = async (req, res) => {
     }
 
     res.json({ ok: true, message: "Transfer rejected, balance returned" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== DAILY MEMBER RANKING =====
+export const getDailyRanking = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT u.name, u.tg_id,
+        COALESCE(SUM(CASE WHEN th.pnl > 0 THEN th.pnl ELSE 0 END), 0) as daily_profit,
+        COALESCE(SUM(CASE WHEN th.pnl < 0 THEN ABS(th.pnl) ELSE 0 END), 0) as daily_loss,
+        COALESCE(SUM(th.pnl), 0) as daily_net,
+        COUNT(th.id) as trade_count
+      FROM users u
+      LEFT JOIN trades_history th ON th.user_id = u.id AND DATE(th.closed_at) = CURRENT_DATE
+      WHERE u.is_banned = FALSE OR u.is_banned IS NULL
+      GROUP BY u.id, u.name, u.tg_id
+      HAVING COUNT(th.id) > 0
+      ORDER BY daily_net DESC
+    `);
+    res.json({ ok: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== CONFIRM REFERRAL DEPOSIT (manual admin action) =====
+export const confirmReferralDeposit = async (req, res) => {
+  try {
+    const { referral_id, deposit_amount } = req.body;
+    if (!referral_id) return res.status(400).json({ ok: false, error: "referral_id required" });
+
+    const refResult = await query("SELECT * FROM referrals WHERE id = $1", [referral_id]);
+    if (refResult.rows.length === 0) return res.status(404).json({ ok: false, error: "Referral not found" });
+    const ref = refResult.rows[0];
+
+    if (ref.status === 'credited') return res.status(400).json({ ok: false, error: "Already credited" });
+
+    const amount = Number(deposit_amount) || 500;
+    let bonus = 0;
+    if (amount >= 1000) bonus = 100;
+    else if (amount >= 500) bonus = 50;
+
+    await query("UPDATE referrals SET status = 'credited', bonus_amount = $1, deposit_confirmed = TRUE, deposit_amount = $2, credited_at = NOW() WHERE id = $3",
+      [bonus, amount, referral_id]);
+
+    if (bonus > 0) {
+      await query("UPDATE users SET balance = balance + $1, referral_earnings = COALESCE(referral_earnings, 0) + $1 WHERE tg_id = $2",
+        [bonus, ref.referrer_tg_id]);
+
+      await query("INSERT INTO ops (user_id, type, amount, note) VALUES ((SELECT id FROM users WHERE tg_id = $1), 'referral_bonus', $2, $3)",
+        [ref.referrer_tg_id, bonus, `Referral bonus: ${ref.referred_tg_id} deposited $${amount}`]);
+
+      try {
+        await bot.sendMessage(Number(ref.referrer_tg_id), `🎉 *مكافأة إحالة!*\n\n👤 المُحال: ${ref.referred_tg_id}\n💰 الإيداع: $${amount}\n🎁 مكافأتك: +$${bonus}\n\n✅ تمت إضافة المكافأة لرصيدك!`, { parse_mode: "Markdown" });
+      } catch (e) {}
+    }
+
+    res.json({ ok: true, message: `Referral confirmed with $${bonus} bonus` });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== CUSTOM TRADE IDS MANAGEMENT =====
+export const getCustomTradeIds = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT cti.*, u.name, u.balance
+      FROM custom_trade_ids cti
+      LEFT JOIN users u ON u.tg_id = cti.tg_id
+      WHERE cti.is_active = TRUE
+      ORDER BY cti.created_at DESC
+    `);
+    res.json({ ok: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const addCustomTradeId = async (req, res) => {
+  try {
+    const { tg_id, label } = req.body;
+    if (!tg_id) return res.status(400).json({ ok: false, error: "tg_id required" });
+
+    await query(
+      `INSERT INTO custom_trade_ids (tg_id, label) VALUES ($1, $2)
+       ON CONFLICT (tg_id) DO UPDATE SET label = $2, is_active = TRUE, updated_at = NOW()`,
+      [tg_id, label || '']
+    );
+
+    res.json({ ok: true, message: "Custom trade ID added" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const removeCustomTradeId = async (req, res) => {
+  try {
+    const { tg_id } = req.body;
+    await query("UPDATE custom_trade_ids SET is_active = FALSE, updated_at = NOW() WHERE tg_id = $1", [tg_id]);
+    res.json({ ok: true, message: "Custom trade ID removed" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const openTradeForCustomIds = async (req, res) => {
+  try {
+    const { tg_ids, target_pnl, duration_minutes, duration_hours, speed, symbol, direction } = req.body;
+    if (!tg_ids || !Array.isArray(tg_ids) || tg_ids.length === 0) {
+      return res.status(400).json({ ok: false, error: "tg_ids array required" });
+    }
+
+    const durationSeconds = duration_minutes ? duration_minutes * 60 : (duration_hours || 1) * 3600;
+    const tradeSpeed = speed || 'normal';
+    const tradeSymbol = symbol || 'XAUUSD';
+    const entryPrice = 2650 + (Math.random() - 0.5) * 10;
+    const tradeDirection = direction === 'random' ? (['BUY', 'SELL'][Math.floor(Math.random() * 2)]) : (direction || 'BUY');
+
+    let opened = 0;
+    for (const tgId of tg_ids) {
+      const userResult = await query("SELECT id, tg_id, name FROM users WHERE tg_id = $1", [tgId]);
+      if (userResult.rows.length === 0) continue;
+      const user = userResult.rows[0];
+
+      await query(`
+        INSERT INTO trades (user_id, symbol, direction, entry_price, current_price, lot_size, target_pnl, duration_seconds, speed, status, trade_type)
+        VALUES ($1, $2, $3, $4, $4, 0.05, $5, $6, $7, 'open', 'custom')
+      `, [user.id, tradeSymbol, tradeDirection, entryPrice, target_pnl || 0, durationSeconds, tradeSpeed]);
+
+      try {
+        await bot.sendMessage(Number(tgId), `🚀 *صفقة جديدة!*\n\n💹 ${tradeSymbol} ${tradeDirection}\n⏱ المدة: ${duration_minutes ? duration_minutes + ' دقيقة' : (duration_hours || 1) + ' ساعة'}\n\n📱 _تابع محفظتك_`, { parse_mode: "Markdown" });
+      } catch (e) {}
+      opened++;
+    }
+
+    res.json({ ok: true, message: `Opened trades for ${opened} users` });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== CLOSE TRADE WITH MANUAL RESULT =====
+export const closeTradeManual = async (req, res) => {
+  try {
+    const { trade_id, result_type, custom_pnl } = req.body;
+    if (!trade_id) return res.status(400).json({ ok: false, error: "trade_id required" });
+
+    const tradeResult = await query("SELECT * FROM trades WHERE id = $1 AND status = 'open'", [trade_id]);
+    if (tradeResult.rows.length === 0) return res.status(404).json({ ok: false, error: "Open trade not found" });
+
+    const trade = tradeResult.rows[0];
+    let pnl;
+
+    if (result_type === 'profit') {
+      pnl = custom_pnl !== undefined ? Math.abs(Number(custom_pnl)) : Math.abs(Number(trade.target_pnl) || Number(trade.pnl) || 0);
+    } else if (result_type === 'loss') {
+      pnl = custom_pnl !== undefined ? -Math.abs(Number(custom_pnl)) : -(Math.abs(Number(trade.target_pnl) || Number(trade.pnl) || 0));
+    } else {
+      pnl = Number(trade.target_pnl) || Number(trade.pnl) || 0;
+    }
+
+    const closeResult = await query(
+      "UPDATE trades SET status = 'closed', closed_at = NOW(), close_reason = 'admin_manual', pnl = $1 WHERE id = $2 AND status = 'open' RETURNING id",
+      [pnl, trade_id]
+    );
+    if (closeResult.rowCount === 0) return res.status(400).json({ ok: false, error: "Trade already closed" });
+
+    await query("UPDATE users SET balance = balance + $1 WHERE id = $2", [pnl, trade.user_id]);
+
+    if (pnl >= 0) {
+      await query("UPDATE users SET wins = COALESCE(wins, 0) + $1 WHERE id = $2", [pnl, trade.user_id]);
+    } else {
+      await query("UPDATE users SET losses = COALESCE(losses, 0) + $1 WHERE id = $2", [Math.abs(pnl), trade.user_id]);
+    }
+
+    const duration = Math.floor((new Date() - new Date(trade.opened_at)) / 1000);
+    await query(
+      `INSERT INTO trades_history (user_id, trade_id, symbol, direction, entry_price, exit_price, lot_size, pnl, duration_seconds, opened_at, closed_at, close_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'admin_manual')`,
+      [trade.user_id, trade_id, trade.symbol, trade.direction, trade.entry_price, trade.current_price, trade.lot_size, pnl, duration, trade.opened_at]
+    );
+
+    await query("INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'pnl', $2, $3)",
+      [trade.user_id, pnl, `Trade #${trade_id} closed manually by admin (${result_type || 'current'})`]);
+
+    const userResult = await query("SELECT tg_id, balance FROM users WHERE id = $1", [trade.user_id]);
+    if (userResult.rows[0]?.tg_id) {
+      try {
+        await bot.sendMessage(Number(userResult.rows[0].tg_id),
+          `🔔 *تم إغلاق صفقتك*\n\n${pnl >= 0 ? '🟢 ربح' : '🔴 خسارة'}: ${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}\n💰 الرصيد: $${Number(userResult.rows[0].balance).toFixed(2)}`,
+          { parse_mode: "Markdown" });
+      } catch (e) {}
+    }
+
+    res.json({ ok: true, message: "Trade closed", pnl });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

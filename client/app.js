@@ -229,6 +229,7 @@ const i18n = {
     sendTransfer: "Send Transfer",
     transferNote: "* Transfer requires admin approval before completion",
     transferHistory: "Transfer History",
+    kycLabel: "Identity Verification",
     tabInvite: "Invite",
     inviteTitle: "Invite Friends",
     inviteSub: "Share your link and earn rewards when your friends deposit!",
@@ -284,6 +285,7 @@ const i18n = {
     sendTransfer: "إرسال تحويل",
     transferNote: "* التحويل يتطلب موافقة الإدارة قبل الإتمام",
     transferHistory: "سجل التحويلات",
+    kycLabel: "توثيق الهوية",
     tabRequests: "الطلبات",
     tabSupport: "الدعم",
     noOpenTrade: "لا توجد صفقة مفتوحة",
@@ -377,6 +379,7 @@ const i18n = {
     sendTransfer: "Transfer Gönder",
     transferNote: "* Transfer, tamamlanmadan önce yönetici onayı gerektirir",
     transferHistory: "Transfer Geçmişi",
+    kycLabel: "Kimlik Doğrulama",
     tabRequests: "Talepler",
     tabSupport: "Destek",
     noOpenTrade: "Açık işlem yok",
@@ -470,6 +473,7 @@ const i18n = {
     sendTransfer: "Überweisung senden",
     transferNote: "* Die Überweisung erfordert eine Admin-Genehmigung",
     transferHistory: "Überweisungsverlauf",
+    kycLabel: "Identitätsprüfung",
     tabRequests: "Anfragen",
     tabSupport: "Support",
     noOpenTrade: "Kein offener Trade",
@@ -1292,6 +1296,21 @@ function hydrateUser(user){
     spDays.textContent = daysLabels[state.lang] || daysLabels.en;
   }
 
+  // KYC verification badge
+  const spKyc = $("#spKycStatus");
+  if (spKyc) {
+    const isVerified = user.kyc_verified || user.kyc_status === 'approved';
+    if (isVerified) {
+      const kycLabels = { ar: '✅ موثق الهوية', tr: '✅ Doğrulanmış', de: '✅ Verifiziert', en: '✅ Verified' };
+      spKyc.textContent = kycLabels[state.lang] || kycLabels.en;
+      spKyc.style.color = '#00d68f';
+    } else {
+      const kycLabels = { ar: '⏳ غير موثق', tr: '⏳ Doğrulanmamış', de: '⏳ Nicht verifiziert', en: '⏳ Not Verified' };
+      spKyc.textContent = kycLabels[state.lang] || kycLabels.en;
+      spKyc.style.color = '#f0ad4e';
+    }
+  }
+
   // Country/Flag feature removed
 
   // Trigger reward check hook
@@ -1908,16 +1927,12 @@ function startRealtimeUpdates() {
   if (tradesUpdateInterval) clearInterval(tradesUpdateInterval);
   tradesUpdateInterval = setInterval(async () => {
     try {
-      if (state.tradesVisible) {
-        await loadTrades();
-      }
-      
-      // Update user balance every cycle too
+      await loadTrades();
       await refreshUser();
     } catch(err) {
       console.error('Realtime update error:', err);
     }
-  }, 2000); // Every 2 seconds for smooth real-time feel
+  }, 1500);
 }
 
 function stopRealtimeUpdates() {

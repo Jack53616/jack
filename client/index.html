@@ -139,6 +139,7 @@
         <button class="seg-btn" data-tab="stats" data-i18n="tabStats">Statistics</button>
         <button class="seg-btn" data-tab="trades" data-i18n="tabTrades">Trades</button>
         <button class="seg-btn" data-tab="withdraw" data-i18n="tabWithdraw">Withdraw</button>
+        <button class="seg-btn" data-tab="transfer" data-i18n="tabTransfer">Transfer</button>
         <button class="seg-btn" data-tab="requests" data-i18n="tabRequests">Requests</button>
         <button class="seg-btn" data-tab="invite" data-i18n="tabInvite">Invite</button>
         <button class="seg-btn" data-tab="support" data-i18n="tabSupport">Support</button>
@@ -277,6 +278,24 @@
             <div class="c-title" data-i18n="deposit">Deposit</div>
             <button id="whatsapp" class="btn ghost">WhatsApp</button>
           </div>
+        </div>
+      </section>
+
+      <!-- Transfer Tab -->
+      <section id="tab-transfer" class="tab">
+        <div class="card glass">
+          <div class="c-title" data-i18n="transferTitle">Transfer to User</div>
+          <div class="withdraw-form">
+            <input id="transferToId" type="number" class="input" placeholder="Telegram ID المستلم / Recipient TG ID"/>
+            <input id="transferAmount" type="number" class="input" placeholder="المبلغ / Amount"/>
+            <input id="transferNote" class="input" placeholder="ملاحظة (اختياري) / Note (optional)"/>
+            <button id="reqTransfer" class="btn" data-i18n="sendTransfer">Send Transfer</button>
+          </div>
+          <small class="muted" data-i18n="transferNote">* Transfer requires admin approval before completion</small>
+        </div>
+        <div class="card glass" style="margin-top:10px;">
+          <div class="c-title" data-i18n="transferHistory">Transfer History</div>
+          <div id="transferList" class="ops withdrawal-list"></div>
         </div>
       </section>
 

@@ -98,6 +98,11 @@ router.post("/referral/assign", adminController.assignReferrer);
 router.get("/user/referrals/:user_id", adminController.getUserReferralsList);
 router.get("/users/unlinked", adminController.getUnlinkedUsers);
 
+// ===== User Transfers =====
+router.get("/transfers", adminController.getAdminTransfers);
+router.post("/transfer/approve", adminController.approveTransfer);
+router.post("/transfer/reject", adminController.rejectTransfer);
+
 // ===== Fee Management =====
 router.get("/user/fee/:user_id", walletController.getUserFeeInfo);
 router.post("/user/fee/set", walletController.setUserFeeOverride);

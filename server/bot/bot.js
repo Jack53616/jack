@@ -399,12 +399,19 @@ bot.onText(/^\/start(.*)$/, async (msg, match) => {
     );
   } catch(e) { /* ignore */ }
 
-  // Check if user is banned
+  // Check if user is banned (with auto-expiry for temp bans)
   try {
     const userCheck = await q(`SELECT * FROM users WHERE tg_id=$1`, [tgId]);
     if (userCheck.rows.length > 0 && userCheck.rows[0].is_banned) {
-      const banReason = userCheck.rows[0].ban_reason || 'مخالفة شروط الاستخدام';
-      return bot.sendMessage(chatId, `⛔ *حسابك محظور*
+      // Auto-expire temp bans
+      if (userCheck.rows[0].ban_expires && new Date(userCheck.rows[0].ban_expires) <= new Date()) {
+        await q(`UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL, ban_expires = NULL WHERE tg_id = $1`, [tgId]);
+      } else {
+        const banReason = userCheck.rows[0].ban_reason || 'مخالفة شروط الاستخدام';
+        const expiresText = userCheck.rows[0].ban_expires 
+          ? `\n⏰ *ينتهي في:* ${new Date(userCheck.rows[0].ban_expires).toLocaleString('ar')}`
+          : '\n⏰ *المدة:* دائم';
+        return bot.sendMessage(chatId, `⛔ *حسابك محظور*
 
 ━━━━━━━━━━━━━━━━━━━━
 ❌ *تم حظر حسابك من استخدام المنصة*
@@ -412,7 +419,7 @@ bot.onText(/^\/start(.*)$/, async (msg, match) => {
 🔸 *سبب الحظر:*
 ${banReason}
 
-🔸 *تاريخ الحظر:* ${userCheck.rows[0].banned_at ? new Date(userCheck.rows[0].banned_at).toLocaleDateString('ar') : 'غير محدد'}
+🔸 *تاريخ الحظر:* ${userCheck.rows[0].banned_at ? new Date(userCheck.rows[0].banned_at).toLocaleDateString('ar') : 'غير محدد'}${expiresText}
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -422,13 +429,14 @@ ${banReason}
 Reason: ${banReason}
 
 Contact support if you believe this is an error.`, {
-        parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "💬 واتساب الدعم | WhatsApp Support", url: "https://wa.me/18259710501" }]
-          ]
-        }
-      });
+          parse_mode: "Markdown",
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "💬 واتساب الدعم | WhatsApp Support", url: "https://wa.me/18259710501" }]
+            ]
+          }
+        });
+      }
     }
   } catch(e) { /* ignore */ }
 
@@ -850,15 +858,15 @@ bot.onText(/^\/ban\s+(\d+)\s+([\s\S]+)$/, async (msg, m) => {
   const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
   if (!u) return bot.sendMessage(msg.chat.id, "User not found");
   
-  await q(`UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW() WHERE tg_id = $2`, [reason, tg]);
+  await q(`UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW(), ban_expires = NULL WHERE tg_id = $2`, [reason, tg]);
   
-  bot.sendMessage(msg.chat.id, `🚫 User ${tg} has been banned.\nReason: ${reason}`);
+  bot.sendMessage(msg.chat.id, `🚫 User ${tg} has been banned permanently.\nReason: ${reason}`);
   
-  // Notify user
   bot.sendMessage(tg, `🚫 *تم حظر حسابك*
 
 ━━━━━━━━━━━━━━━━━━━━
 📋 *السبب:* ${reason}
+⏰ *المدة:* دائم
 
 📩 للتواصل مع الدعم:
 ━━━━━━━━━━━━━━━━━━━━
@@ -874,11 +882,48 @@ Reason: ${reason}`, {
   }).catch(()=>{});
 });
 
+// Temp ban: /tempban <tg_id> <hours> <reason>
+bot.onText(/^\/tempban\s+(\d+)\s+(\d+)\s+([\s\S]+)$/, async (msg, m) => {
+  if (!isAdmin(msg)) return;
+  const tg = Number(m[1]);
+  const hours = Number(m[2]);
+  const reason = m[3].trim();
+  
+  if (hours <= 0 || hours > 8760) return bot.sendMessage(msg.chat.id, "❌ Invalid duration (1-8760 hours)");
+  
+  const u = await q(`SELECT * FROM users WHERE tg_id=$1`, [tg]).then(r => r.rows[0]);
+  if (!u) return bot.sendMessage(msg.chat.id, "User not found");
+  
+  const banExpires = new Date(Date.now() + hours * 3600000);
+  await q(`UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW(), ban_expires = $2 WHERE tg_id = $3`, [reason, banExpires.toISOString(), tg]);
+  
+  bot.sendMessage(msg.chat.id, `🚫 User ${tg} temp-banned for ${hours}h.\nReason: ${reason}\nExpires: ${banExpires.toISOString()}`);
+  
+  bot.sendMessage(tg, `🚫 *تم حظر حسابك مؤقتاً*
+
+━━━━━━━━━━━━━━━━━━━━
+📋 *السبب:* ${reason}
+⏰ *المدة:* ${hours} ساعة
+📅 *ينتهي في:* ${banExpires.toLocaleString('ar')}
+━━━━━━━━━━━━━━━━━━━━
+
+⛔ *Your account has been temporarily suspended*
+Reason: ${reason}
+Duration: ${hours} hours`, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💬 واتساب الدعم | WhatsApp Support", url: "https://wa.me/18259710501" }]
+      ]
+    }
+  }).catch(()=>{});
+});
+
 bot.onText(/^\/unban\s+(\d+)$/, async (msg, m) => {
   if (!isAdmin(msg)) return;
   const tg = Number(m[1]);
   
-  await q(`UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL WHERE tg_id = $1`, [tg]);
+  await q(`UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL, ban_expires = NULL WHERE tg_id = $1`, [tg]);
   
   bot.sendMessage(msg.chat.id, `✅ User ${tg} has been unbanned.`);
   bot.sendMessage(tg, `✅ *تم رفع الحظر عن حسابك*
@@ -1411,7 +1456,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
   // ===== Ban Section =====
   if (data === 'panel_ban') {
-    return bot.editMessageText(`⛔ *إدارة الحظر*\n\nالأوامر المتاحة:\n\n\`/ban <tg_id> <reason>\` - حظر مستخدم\n\`/unban <tg_id>\` - إلغاء الحظر`, {
+    return bot.editMessageText(`⛔ *إدارة الحظر*\n\nالأوامر المتاحة:\n\n\`/ban <tg_id> <reason>\` - حظر دائم\n\`/tempban <tg_id> <hours> <reason>\` - حظر مؤقت\n\`/unban <tg_id>\` - إلغاء الحظر`, {
       chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
       reply_markup: { inline_keyboard: backBtn }
     });

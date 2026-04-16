@@ -224,6 +224,11 @@ const i18n = {
     close: "Close",
     marketClosed: "Market Closed (Weekend)",
     closeTradeBtn: "Close Trade",
+    tabTransfer: "Transfer",
+    transferTitle: "Transfer to User",
+    sendTransfer: "Send Transfer",
+    transferNote: "* Transfer requires admin approval before completion",
+    transferHistory: "Transfer History",
     tabInvite: "Invite",
     inviteTitle: "Invite Friends",
     inviteSub: "Share your link and earn rewards when your friends deposit!",
@@ -274,6 +279,11 @@ const i18n = {
     stats: "إحصائيات",
     tabTrades: "صفقاتي",
     tabWithdraw: "السحب",
+    tabTransfer: "تحويل",
+    transferTitle: "تحويل إلى مستخدم",
+    sendTransfer: "إرسال تحويل",
+    transferNote: "* التحويل يتطلب موافقة الإدارة قبل الإتمام",
+    transferHistory: "سجل التحويلات",
     tabRequests: "الطلبات",
     tabSupport: "الدعم",
     noOpenTrade: "لا توجد صفقة مفتوحة",
@@ -362,6 +372,11 @@ const i18n = {
     stats: "İstatistik",
     tabTrades: "İşlemlerim",
     tabWithdraw: "Çekim",
+    tabTransfer: "Transfer",
+    transferTitle: "Kullanıcıya Transfer",
+    sendTransfer: "Transfer Gönder",
+    transferNote: "* Transfer, tamamlanmadan önce yönetici onayı gerektirir",
+    transferHistory: "Transfer Geçmişi",
     tabRequests: "Talepler",
     tabSupport: "Destek",
     noOpenTrade: "Açık işlem yok",
@@ -450,6 +465,11 @@ const i18n = {
     stats: "Statistik",
     tabTrades: "Meine Trades",
     tabWithdraw: "Auszahlung",
+    tabTransfer: "Überweisung",
+    transferTitle: "An Benutzer überweisen",
+    sendTransfer: "Überweisung senden",
+    transferNote: "* Die Überweisung erfordert eine Admin-Genehmigung",
+    transferHistory: "Überweisungsverlauf",
     tabRequests: "Anfragen",
     tabSupport: "Support",
     noOpenTrade: "Kein offener Trade",
@@ -784,6 +804,9 @@ $$(".seg-btn").forEach(btn=>{
     if(tab === "trades"){
       loadTrades();
     }
+    if(tab === "transfer"){
+      loadMyTransfers();
+    }
     if(tab === "stats"){
       loadStats();
     }
@@ -1073,6 +1096,109 @@ $("#reqWithdraw").addEventListener("click", async () => {
     showWithdrawConfirm(tg, amount, state.method, address, null);
   }
 });
+
+// ===== TRANSFER =====
+$("#reqTransfer")?.addEventListener("click", async () => {
+  const tg = state.user?.tg_id || Number(localStorage.getItem("tg"));
+  const toId = Number($("#transferToId")?.value || 0);
+  const amount = Number($("#transferAmount")?.value || 0);
+  const note = $("#transferNote")?.value?.trim() || '';
+  const isAr = state.lang === 'ar';
+
+  if (!toId) return notify(isAr ? '❌ أدخل Telegram ID المستلم' : '❌ Enter recipient Telegram ID');
+  if (toId === tg) return notify(isAr ? '❌ لا يمكنك التحويل لنفسك' : '❌ Cannot transfer to yourself');
+  if (amount <= 0) return notify(isAr ? '❌ أدخل مبلغ صحيح' : '❌ Enter valid amount');
+  if (amount > Number(state.user?.balance || 0)) return notify(isAr ? '❌ الرصيد غير كافي' : '❌ Insufficient balance');
+
+  if (!confirm(isAr ? `هل تريد تحويل $${amount.toFixed(2)} إلى المستخدم ${toId}؟` : `Transfer $${amount.toFixed(2)} to user ${toId}?`)) return;
+
+  try {
+    const res = await fetch('/api/wallet/transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_tg_id: tg, to_tg_id: toId, amount, note })
+    }).then(r => r.json());
+
+    if (res.ok) {
+      notify(isAr ? '✅ تم إرسال طلب التحويل — بانتظار موافقة الإدارة' : '✅ Transfer request sent — awaiting admin approval');
+      $("#transferToId").value = '';
+      $("#transferAmount").value = '';
+      $("#transferNote").value = '';
+      loadMyTransfers();
+      loadWallet();
+    } else {
+      notify('❌ ' + (res.error || 'Error'));
+    }
+  } catch (e) {
+    notify(isAr ? '❌ خطأ في الاتصال' : '❌ Connection error');
+  }
+});
+
+async function loadMyTransfers() {
+  const tg = state.user?.tg_id || Number(localStorage.getItem("tg"));
+  if (!tg) return;
+  const isAr = state.lang === 'ar';
+  try {
+    const res = await fetch(`/api/wallet/transfers/${tg}`).then(r => r.json());
+    const list = res.data || [];
+    const el = $("#transferList");
+    if (!el) return;
+
+    if (list.length === 0) {
+      el.innerHTML = `<div class="empty-state">${isAr ? 'لا توجد تحويلات بعد' : 'No transfers yet'}</div>`;
+      return;
+    }
+    el.innerHTML = list.map(t => {
+      const isSender = Number(t.from_tg_id) === tg;
+      const dir = isSender ? (isAr ? '↗ أرسلت' : '↗ Sent') : (isAr ? '↙ استلمت' : '↙ Received');
+      const dirColor = isSender ? 'var(--danger, #e74c3c)' : 'var(--success, #27ae60)';
+      const statusMap = {
+        pending: isAr ? '🔄 معلق' : '🔄 Pending',
+        approved: isAr ? '✅ مقبول' : '✅ Approved',
+        rejected: isAr ? '❌ مرفوض' : '❌ Rejected',
+        cancelled: isAr ? '🚫 ملغي' : '🚫 Cancelled'
+      };
+      const otherUser = isSender ? (t.to_name || t.to_tg_id) : (t.from_name || t.from_tg_id);
+      return `
+        <div class="op-item glass" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:6px;border-radius:10px;">
+          <div>
+            <span style="color:${dirColor};font-weight:700;">${dir}</span>
+            <span style="margin:0 6px;color:var(--muted);">→</span>
+            <span>${otherUser}</span>
+            ${t.note ? `<div style="font-size:11px;color:var(--muted);">${t.note}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;color:${dirColor};">$${Number(t.amount).toFixed(2)}</div>
+            <div style="font-size:11px;">${statusMap[t.status] || t.status}</div>
+            ${t.status === 'pending' && isSender ? `<button onclick="cancelTransfer(${t.id})" style="font-size:11px;color:var(--danger);cursor:pointer;background:none;border:1px solid var(--danger);border-radius:6px;padding:2px 8px;margin-top:3px;">${isAr ? 'إلغاء' : 'Cancel'}</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {}
+}
+
+window.cancelTransfer = async (id) => {
+  const tg = state.user?.tg_id || Number(localStorage.getItem("tg"));
+  const isAr = state.lang === 'ar';
+  if (!confirm(isAr ? 'هل تريد إلغاء هذا التحويل؟' : 'Cancel this transfer?')) return;
+  try {
+    const res = await fetch('/api/wallet/transfer/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transfer_id: id, tg_id: tg })
+    }).then(r => r.json());
+    if (res.ok) {
+      notify(isAr ? '✅ تم إلغاء التحويل' : '✅ Transfer cancelled');
+      loadMyTransfers();
+      loadWallet();
+    } else {
+      notify('❌ ' + (res.error || 'Error'));
+    }
+  } catch (e) {
+    notify(isAr ? '❌ خطأ' : '❌ Error');
+  }
+};
 
 // Withdraw success animation
 function showWithdrawSuccess(amount) {

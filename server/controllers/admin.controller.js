@@ -319,17 +319,22 @@ export const clearHistory = async (req, res) => {
   }
 };
 
-// Ban user
+// Ban user (supports temporary ban with duration)
 export const banUser = async (req, res) => {
   try {
-    const { user_id, banned, reason } = req.body;
+    const { user_id, banned, reason, duration_hours } = req.body;
     const isBanned = banned !== false;
     const banReason = reason || 'مخالفة شروط الاستخدام';
 
     if (isBanned) {
-      await query("UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW() WHERE id = $2", [banReason, user_id]);
+      if (duration_hours && Number(duration_hours) > 0) {
+        const banExpires = new Date(Date.now() + Number(duration_hours) * 3600000);
+        await query("UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW(), ban_expires = $2 WHERE id = $3", [banReason, banExpires.toISOString(), user_id]);
+      } else {
+        await query("UPDATE users SET is_banned = TRUE, ban_reason = $1, banned_at = NOW(), ban_expires = NULL WHERE id = $2", [banReason, user_id]);
+      }
     } else {
-      await query("UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL WHERE id = $1", [user_id]);
+      await query("UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL, ban_expires = NULL WHERE id = $1", [user_id]);
     }
 
     const userResult = await query("SELECT tg_id FROM users WHERE id = $1", [user_id]);
@@ -337,7 +342,8 @@ export const banUser = async (req, res) => {
       const tgId = Number(userResult.rows[0].tg_id);
       try {
         if (isBanned) {
-          await bot.sendMessage(tgId, `⛔ *تم حظر حسابك*\n\n━━━━━━━━━━━━━━━━━━━━\n🔸 *السبب:* ${banReason}\n\n💬 للتواصل مع الدعم:\n━━━━━━━━━━━━━━━━━━━━\n\n⛔ *Your account has been suspended*\nReason: ${banReason}`, {
+          const durationText = duration_hours ? `\n⏰ *المدة:* ${duration_hours} ساعة` : '\n⏰ *المدة:* دائم';
+          await bot.sendMessage(tgId, `⛔ *تم حظر حسابك*\n\n━━━━━━━━━━━━━━━━━━━━\n🔸 *السبب:* ${banReason}${durationText}\n\n💬 للتواصل مع الدعم:\n━━━━━━━━━━━━━━━━━━━━\n\n⛔ *Your account has been suspended*\nReason: ${banReason}`, {
             parse_mode: "Markdown",
             reply_markup: {
               inline_keyboard: [
@@ -353,7 +359,7 @@ export const banUser = async (req, res) => {
       }
     }
 
-    res.json({ ok: true, message: isBanned ? "User banned" : "User unbanned" });
+    res.json({ ok: true, message: isBanned ? (duration_hours ? `User temp-banned for ${duration_hours}h` : "User banned") : "User unbanned" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -364,7 +370,7 @@ export const unbanUser = async (req, res) => {
   try {
     const { user_id } = req.body;
 
-    await query("UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL WHERE id = $1", [user_id]);
+    await query("UPDATE users SET is_banned = FALSE, ban_reason = NULL, banned_at = NULL, ban_expires = NULL WHERE id = $1", [user_id]);
 
     const userResult = await query("SELECT tg_id FROM users WHERE id = $1", [user_id]);
     if (userResult.rows.length > 0 && userResult.rows[0].tg_id) {
@@ -379,12 +385,13 @@ export const unbanUser = async (req, res) => {
   }
 };
 
-// Get withdrawals with filter
+// Get withdrawals with filter (now includes fee breakdown)
 export const getWithdrawals = async (req, res) => {
   try {
     const { status } = req.query;
     let sql = `
       SELECT r.*, u.tg_id, u.name as user_name,
+             u.first_deposit_at, u.last_withdrawal_at, u.fee_override, u.country,
              wm.address as saved_wallet_address
       FROM requests r 
       JOIN users u ON r.user_id = u.id
@@ -2269,6 +2276,117 @@ export const rejectKycRequest = async (req, res) => {
       return res.status(404).json({ ok: false, error: "KYC request not found" });
     }
     res.json({ ok: true, request: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== User Transfers Management =====
+export const getAdminTransfers = async (req, res) => {
+  try {
+    const { status } = req.query;
+    let sql = `
+      SELECT t.*,
+             uf.name as from_name, uf.tg_id as from_tg_id,
+             ut.name as to_name, ut.tg_id as to_tg_id
+      FROM user_transfers t
+      JOIN users uf ON t.from_user_id = uf.id
+      JOIN users ut ON t.to_user_id = ut.id
+    `;
+    const params = [];
+    if (status && status !== 'all') {
+      sql += ` WHERE t.status = $1`;
+      params.push(status);
+    }
+    sql += ` ORDER BY t.created_at DESC LIMIT 100`;
+
+    const result = await query(sql, params);
+    res.json({ ok: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const approveTransfer = async (req, res) => {
+  try {
+    const { transfer_id } = req.body;
+
+    const result = await query("SELECT * FROM user_transfers WHERE id = $1", [transfer_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Transfer not found" });
+    }
+
+    const transfer = result.rows[0];
+    if (transfer.status !== 'pending') {
+      return res.status(400).json({ ok: false, error: "Transfer already processed" });
+    }
+
+    await query("UPDATE user_transfers SET status = 'approved', reviewed_at = NOW(), updated_at = NOW() WHERE id = $1", [transfer_id]);
+
+    await query(
+      "UPDATE users SET frozen_balance = GREATEST(0, frozen_balance - $1) WHERE id = $2",
+      [transfer.amount, transfer.from_user_id]
+    );
+
+    await query(
+      "UPDATE users SET balance = balance + $1 WHERE id = $2",
+      [transfer.amount, transfer.to_user_id]
+    );
+
+    await query(
+      "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_in', $2, $3)",
+      [transfer.to_user_id, transfer.amount, 'تحويل مستلم']
+    );
+
+    const fromUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.from_user_id]);
+    const toUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.to_user_id]);
+
+    if (fromUser.rows[0]?.tg_id) {
+      try {
+        await bot.sendMessage(Number(fromUser.rows[0].tg_id), `✅ *تمت الموافقة على تحويلك*\n\n💰 المبلغ: $${Number(transfer.amount).toFixed(2)}\n👤 إلى: ${toUser.rows[0]?.name || 'مستخدم'}\n\n✅ *Your transfer has been approved*`, { parse_mode: "Markdown" });
+      } catch (e) {}
+    }
+    if (toUser.rows[0]?.tg_id) {
+      try {
+        await bot.sendMessage(Number(toUser.rows[0].tg_id), `💰 *تم استلام تحويل*\n\n💰 المبلغ: $${Number(transfer.amount).toFixed(2)}\n👤 من: ${fromUser.rows[0]?.name || 'مستخدم'}\n\n💰 *You received a transfer*`, { parse_mode: "Markdown" });
+      } catch (e) {}
+    }
+
+    res.json({ ok: true, message: "Transfer approved" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const rejectTransfer = async (req, res) => {
+  try {
+    const { transfer_id, reason } = req.body;
+
+    const result = await query("SELECT * FROM user_transfers WHERE id = $1", [transfer_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Transfer not found" });
+    }
+
+    const transfer = result.rows[0];
+    if (transfer.status !== 'pending') {
+      return res.status(400).json({ ok: false, error: "Transfer already processed" });
+    }
+
+    await query("UPDATE user_transfers SET status = 'rejected', admin_note = $1, reviewed_at = NOW(), updated_at = NOW() WHERE id = $2", [reason || 'Rejected', transfer_id]);
+
+    await query(
+      "UPDATE users SET balance = balance + $1, frozen_balance = GREATEST(0, frozen_balance - $1) WHERE id = $2",
+      [transfer.amount, transfer.from_user_id]
+    );
+
+    const fromUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.from_user_id]);
+    if (fromUser.rows[0]?.tg_id) {
+      try {
+        await bot.sendMessage(Number(fromUser.rows[0].tg_id), `❌ *تم رفض طلب التحويل*\n\n💰 المبلغ: $${Number(transfer.amount).toFixed(2)}\n📌 السبب: ${reason || 'رفض من الإدارة'}\n\n💰 تم إرجاع المبلغ لرصيدك.\n\n❌ *Transfer request rejected*\nAmount returned to your balance.`, { parse_mode: "Markdown" });
+      } catch (e) {}
+    }
+
+    res.json({ ok: true, message: "Transfer rejected, balance returned" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

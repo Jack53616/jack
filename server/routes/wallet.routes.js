@@ -28,4 +28,13 @@ router.post("/deposit", walletController.processDeposit);
 // GET /api/wallet/withdraw/fee-preview - Preview withdrawal fee
 router.get("/withdraw/fee-preview", walletController.getWithdrawalFeePreview);
 
+// POST /api/wallet/transfer - Request user-to-user transfer
+router.post("/transfer", walletController.requestTransfer);
+
+// GET /api/wallet/transfers/:tg_id - Get user transfers
+router.get("/transfers/:tg_id", walletController.getUserTransfers);
+
+// POST /api/wallet/transfer/cancel - Cancel pending transfer
+router.post("/transfer/cancel", walletController.cancelTransfer);
+
 export default router;

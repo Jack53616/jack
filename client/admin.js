@@ -11,6 +11,7 @@ let state = {
   currentUser: null,
   withdrawFilter: 'pending',
   tradeFilter: 'open',
+  transferFilter: 'pending',
   currentMassTradeId: null,
   currentMassTradeStatus: null
 };
@@ -88,6 +89,7 @@ function loadAll() {
   loadUsers();
   loadWithdrawals();
   loadTrades();
+  loadTransfers();
   loadSettings();
   loadMassTrades();
   loadTodayScheduled();
@@ -262,13 +264,25 @@ function showUserDetails(user) {
   $('#ud-sub').textContent = user.sub_expires ? new Date(user.sub_expires).toLocaleDateString('ar') : 'منتهي';
   
   if (user.is_banned) {
-    $('#ud-status').innerHTML = `<span style="color:var(--danger);">⛔ محظور</span><br><small style="color:var(--muted);">السبب: ${user.ban_reason || '-'}</small>`;
+    let banStatusHtml = `<span style="color:var(--danger);">⛔ محظور</span><br><small style="color:var(--muted);">السبب: ${user.ban_reason || '-'}</small>`;
+    if (user.ban_expires) {
+      const expiresDate = new Date(user.ban_expires);
+      const isExpired = expiresDate <= new Date();
+      banStatusHtml += `<br><small style="color:${isExpired ? 'var(--success)' : '#f0ad4e'};">⏰ ${isExpired ? 'منتهي (سيُرفع تلقائياً)' : 'ينتهي: ' + expiresDate.toLocaleString('ar')}</small>`;
+    } else {
+      banStatusHtml += `<br><small style="color:var(--danger);">⏰ دائم</small>`;
+    }
+    $('#ud-status').innerHTML = banStatusHtml;
     $('#banUserBtn').classList.add('hidden');
     $('#unbanUserBtn').classList.remove('hidden');
+    const banExpiresEl = document.getElementById('banExpiresInfo');
+    if (banExpiresEl) banExpiresEl.classList.add('hidden');
   } else {
     $('#ud-status').innerHTML = `<span style="color:var(--success);">✅ نشط</span>`;
     $('#banUserBtn').classList.remove('hidden');
     $('#unbanUserBtn').classList.add('hidden');
+    const banExpiresEl = document.getElementById('banExpiresInfo');
+    if (banExpiresEl) banExpiresEl.classList.add('hidden');
   }
   
   $('#userDetails').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -403,9 +417,14 @@ $('#clearTradesBtn')?.addEventListener('click', async () => {
 $('#banUserBtn')?.addEventListener('click', async () => {
   if (!state.currentUser) return;
   const reason = $('#banReason').value.trim() || 'مخالفة شروط الاستخدام';
-  if (!confirm(`هل أنت متأكد من حظر المستخدم #${state.currentUser.id}؟`)) return;
-  const r = await api('/api/admin/user/ban', 'POST', { user_id: state.currentUser.id, banned: true, reason });
-  if (r.ok) { toast('✅ تم حظر المستخدم'); viewUser(state.currentUser.id); loadUsers(); }
+  const durationEl = document.getElementById('banDuration');
+  const duration_hours = durationEl ? durationEl.value : '';
+  const durationText = duration_hours ? ` لمدة ${duration_hours} ساعة` : ' (دائم)';
+  if (!confirm(`هل أنت متأكد من حظر المستخدم #${state.currentUser.id}${durationText}؟`)) return;
+  const body = { user_id: state.currentUser.id, banned: true, reason };
+  if (duration_hours) body.duration_hours = Number(duration_hours);
+  const r = await api('/api/admin/user/ban', 'POST', body);
+  if (r.ok) { toast('✅ تم حظر المستخدم' + durationText); viewUser(state.currentUser.id); loadUsers(); }
   else toast('❌ ' + (r.error || 'خطأ'));
 });
 
@@ -503,25 +522,32 @@ async function loadWithdrawals() {
   
   const wds = r.data || [];
   $('#wds').innerHTML = `
-    <div class="table-row header" style="grid-template-columns: 50px 120px 90px 100px 200px 130px 120px;">
+    <div class="table-row header" style="grid-template-columns: 50px 110px 90px 80px 70px 80px 160px 110px 100px;">
       <div>ID</div>
       <div>المستخدم</div>
       <div>المبلغ</div>
-      <div>الطريقة</div>
-      <div>عنوان المحفظة</div>
+      <div>الرسوم</div>
+      <div>النسبة</div>
+      <div>الصافي</div>
+      <div>المحفظة</div>
       <div>الحالة</div>
       <div>إجراءات</div>
     </div>
     ${wds.map(w => {
       const walletAddr = w.address || w.saved_wallet_address || '-';
-      const shortAddr = walletAddr.length > 20 ? walletAddr.substring(0, 10) + '...' + walletAddr.substring(walletAddr.length - 6) : walletAddr;
+      const shortAddr = walletAddr.length > 16 ? walletAddr.substring(0, 8) + '...' + walletAddr.substring(walletAddr.length - 4) : walletAddr;
+      const feeAmt = Number(w.fee_amount || 0);
+      const feeRate = Number(w.fee_rate || 0);
+      const netAmt = Number(w.net_amount || w.amount || 0);
       return `
-      <div class="table-row" style="grid-template-columns: 50px 120px 90px 100px 200px 130px 120px;">
+      <div class="table-row" style="grid-template-columns: 50px 110px 90px 80px 70px 80px 160px 110px 100px;">
         <div>${w.id}</div>
         <div>${w.user_name || w.user_id}</div>
         <div style="color: var(--success); font-weight: 700;">$${Number(w.amount || 0).toFixed(2)}</div>
-        <div>${w.method === 'usdt_trc20' ? '💎 USDT TRC20' : w.method === 'usdt_erc20' ? '💜 USDT ERC20' : w.method || '-'}</div>
-        <div style="font-family: monospace; font-size: 12px;">
+        <div style="color: #ff8899; font-size:12px;">$${feeAmt.toFixed(2)}</div>
+        <div style="color: #ff8899; font-size:12px;">${feeRate}%</div>
+        <div style="color: #00d68f; font-weight: 700; font-size:12px;">$${netAmt.toFixed(2)}</div>
+        <div style="font-family: monospace; font-size: 11px;">
           <span title="${walletAddr}" style="cursor: pointer;" onclick="navigator.clipboard.writeText('${walletAddr}').then(()=>toast('✅ تم نسخ العنوان'))">${shortAddr} 📋</span>
         </div>
         <div>${w.status === 'pending' ? '<span style="color:#f0ad4e;">🔄 قيد الانتظار</span>' : w.status === 'approved' ? '<span style="color:var(--success);">✅ مقبول</span>' : '<span style="color:var(--danger);">❌ مرفوض</span>'}</div>
@@ -557,6 +583,65 @@ window.rejectWithdraw = async (id) => {
   const reason = prompt('سبب الرفض (اختياري):');
   const r = await api('/api/admin/withdraw/reject', 'POST', { request_id: id, reason });
   if (r.ok) { toast('✅ تم رفض طلب السحب'); loadWithdrawals(); loadDashboard(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+// ===== TRANSFERS =====
+async function loadTransfers() {
+  const r = await api(`/api/admin/transfers?status=${state.transferFilter}`);
+  if (!r.ok) return;
+  
+  const tfs = r.data || [];
+  $('#transfersList').innerHTML = `
+    <div class="table-row header" style="grid-template-columns: 50px 120px 120px 90px 150px 120px 120px;">
+      <div>ID</div>
+      <div>من</div>
+      <div>إلى</div>
+      <div>المبلغ</div>
+      <div>الملاحظة</div>
+      <div>الحالة</div>
+      <div>إجراءات</div>
+    </div>
+    ${tfs.map(t => `
+      <div class="table-row" style="grid-template-columns: 50px 120px 120px 90px 150px 120px 120px;">
+        <div>${t.id}</div>
+        <div>${t.from_name || t.from_tg_id}</div>
+        <div>${t.to_name || t.to_tg_id}</div>
+        <div style="color: var(--success); font-weight: 700;">$${Number(t.amount || 0).toFixed(2)}</div>
+        <div style="font-size:12px;color:var(--muted);">${t.note || '-'}</div>
+        <div>${t.status === 'pending' ? '<span style="color:#f0ad4e;">🔄 معلق</span>' : t.status === 'approved' ? '<span style="color:var(--success);">✅ مقبول</span>' : t.status === 'cancelled' ? '<span style="color:#888;">🚫 ملغي</span>' : '<span style="color:var(--danger);">❌ مرفوض</span>'}</div>
+        <div class="table-actions">
+          ${t.status === 'pending' ? `
+            <button class="mini-btn view" onclick="approveTransfer(${t.id})">قبول</button>
+            <button class="mini-btn reject" onclick="rejectTransfer(${t.id})">رفض</button>
+          ` : '-'}
+        </div>
+      </div>
+    `).join('')}
+    ${tfs.length === 0 ? '<div style="padding: 20px; text-align: center; color: var(--muted);">لا توجد تحويلات</div>' : ''}
+  `;
+}
+
+$$('#tab-transfers .filter-btn[data-group="transfers"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('#tab-transfers .filter-btn[data-group="transfers"]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.transferFilter = btn.dataset.filter;
+    loadTransfers();
+  });
+});
+
+window.approveTransfer = async (id) => {
+  if (!confirm('هل أنت متأكد من قبول طلب التحويل؟')) return;
+  const r = await api('/api/admin/transfer/approve', 'POST', { transfer_id: id });
+  if (r.ok) { toast('✅ تم قبول التحويل'); loadTransfers(); loadDashboard(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+};
+
+window.rejectTransfer = async (id) => {
+  const reason = prompt('سبب الرفض (اختياري):');
+  const r = await api('/api/admin/transfer/reject', 'POST', { transfer_id: id, reason });
+  if (r.ok) { toast('✅ تم رفض التحويل وإرجاع المبلغ'); loadTransfers(); loadDashboard(); }
   else toast('❌ ' + (r.error || 'خطأ'));
 };
 
@@ -1329,6 +1414,7 @@ setInterval(() => {
     loadDashboard();
     loadWithdrawals();
     loadTrades();
+    loadTransfers();
     loadMassTrades();
     loadTodayScheduled();
   }

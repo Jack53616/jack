@@ -508,6 +508,149 @@ export const resetUserFeeTimer = async (req, res) => {
   }
 };
 
+// ===== API: Request user-to-user transfer =====
+export const requestTransfer = async (req, res) => {
+  try {
+    const { tg_id, to_tg_id, amount, note } = req.body;
+
+    if (!validateTelegramId(tg_id) || !validateTelegramId(to_tg_id)) {
+      return res.status(400).json({ ok: false, error: "Invalid Telegram ID" });
+    }
+    if (!validateAmount(amount)) {
+      return res.status(400).json({ ok: false, error: "Invalid amount" });
+    }
+    if (String(tg_id) === String(to_tg_id)) {
+      return res.status(400).json({ ok: false, error: "لا يمكنك التحويل لنفسك | Cannot transfer to yourself" });
+    }
+
+    const fromUser = await query("SELECT * FROM users WHERE tg_id = $1", [tg_id]);
+    if (fromUser.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Sender not found" });
+    }
+    const sender = fromUser.rows[0];
+
+    if (sender.is_banned) {
+      return res.status(403).json({ ok: false, error: "حسابك محظور | Account is banned" });
+    }
+
+    const toUser = await query("SELECT * FROM users WHERE tg_id = $1", [to_tg_id]);
+    if (toUser.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "المستلم غير موجود | Recipient not found" });
+    }
+    const receiver = toUser.rows[0];
+
+    if (receiver.is_banned) {
+      return res.status(400).json({ ok: false, error: "حساب المستلم محظور | Recipient account is banned" });
+    }
+
+    if (Number(sender.balance) < Number(amount)) {
+      return res.status(400).json({ ok: false, error: "الرصيد غير كافي | Insufficient balance" });
+    }
+
+    const pendingCheck = await query(
+      "SELECT COUNT(*) as count FROM user_transfers WHERE from_user_id = $1 AND status = 'pending'",
+      [sender.id]
+    );
+    if (Number(pendingCheck.rows[0].count) >= 3) {
+      return res.status(400).json({ ok: false, error: "لديك طلبات تحويل معلقة (حد أقصى 3) | Max 3 pending transfers" });
+    }
+
+    await query(
+      "UPDATE users SET balance = balance - $1, frozen_balance = frozen_balance + $1 WHERE id = $2",
+      [amount, sender.id]
+    );
+
+    await query(
+      `INSERT INTO user_transfers (from_user_id, to_user_id, amount, note, status)
+       VALUES ($1, $2, $3, $4, 'pending')`,
+      [sender.id, receiver.id, amount, note || null]
+    );
+
+    await query(
+      "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_out', $2, $3)",
+      [sender.id, -amount, `طلب تحويل إلى ${receiver.name || receiver.tg_id}`]
+    );
+
+    res.json({
+      ok: true,
+      message: "تم إرسال طلب التحويل وبانتظار موافقة الإدارة | Transfer request submitted, pending admin approval",
+      to_name: receiver.name || receiver.tg_id
+    });
+  } catch (error) {
+    console.error("Transfer error:", error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== API: Get user transfers =====
+export const getUserTransfers = async (req, res) => {
+  try {
+    const { tg_id } = req.params;
+    if (!validateTelegramId(tg_id)) {
+      return res.status(400).json({ ok: false, error: "Invalid Telegram ID" });
+    }
+
+    const userResult = await query("SELECT id FROM users WHERE tg_id = $1", [tg_id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+    const userId = userResult.rows[0].id;
+
+    const result = await query(
+      `SELECT t.*, 
+              uf.name as from_name, uf.tg_id as from_tg_id,
+              ut.name as to_name, ut.tg_id as to_tg_id
+       FROM user_transfers t
+       JOIN users uf ON t.from_user_id = uf.id
+       JOIN users ut ON t.to_user_id = ut.id
+       WHERE t.from_user_id = $1 OR t.to_user_id = $1
+       ORDER BY t.created_at DESC LIMIT 20`,
+      [userId]
+    );
+
+    res.json({ ok: true, list: result.rows, user_id: userId });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== API: Cancel pending transfer =====
+export const cancelTransfer = async (req, res) => {
+  try {
+    const { tg_id, transfer_id } = req.body;
+
+    const userResult = await query("SELECT id FROM users WHERE tg_id = $1", [tg_id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+    const userId = userResult.rows[0].id;
+
+    const transferResult = await query(
+      "SELECT * FROM user_transfers WHERE id = $1 AND from_user_id = $2 AND status = 'pending'",
+      [transfer_id, userId]
+    );
+    if (transferResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Transfer not found or cannot be cancelled" });
+    }
+
+    const transfer = transferResult.rows[0];
+
+    await query(
+      "UPDATE users SET balance = balance + $1, frozen_balance = frozen_balance - $1 WHERE id = $2",
+      [transfer.amount, userId]
+    );
+
+    await query(
+      "UPDATE user_transfers SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+      [transfer_id]
+    );
+
+    res.json({ ok: true, message: "تم إلغاء التحويل | Transfer cancelled" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
 // ===== API: Get user fee info (ADMIN) =====
 export const getUserFeeInfo = async (req, res) => {
   try {

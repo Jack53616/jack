@@ -265,8 +265,8 @@ function getMainReplyKeyboard() {
   return {
     keyboard: [
       [{ text: '📱 فتح المحفظة' }, { text: '🪪 توثيق الهوية' }],
-      [{ text: '📊 صفقاتي' }, { text: '💬 واتساب الدعم' }],
-      [{ text: '/verify' }, { text: '/menu' }]
+      [{ text: '📊 صفقاتي' }, { text: '🏆 التصنيف اليومي' }],
+      [{ text: '💬 واتساب الدعم' }, { text: '/menu' }]
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
@@ -511,6 +511,108 @@ bot.onText(/^📊\s*صفقاتي.*$/i, async (msg) => {
   });
 });
 
+// ===== Daily Ranking (visible to all users) =====
+bot.onText(/^🏆\s*التصنيف اليومي.*$/i, async (msg) => {
+  const chatId = msg.chat.id;
+  const tgId = msg.from.id;
+  try {
+    const rankResult = await q(`
+      SELECT u.tg_id, u.name, u.first_name,
+        COUNT(th.id) as trade_count,
+        COALESCE(SUM(CASE WHEN th.pnl >= 0 THEN th.pnl ELSE 0 END), 0) as total_profit,
+        COALESCE(SUM(CASE WHEN th.pnl < 0 THEN ABS(th.pnl) ELSE 0 END), 0) as total_loss,
+        COALESCE(SUM(th.pnl), 0) as net
+      FROM trades_history th
+      JOIN users u ON u.id = th.user_id
+      WHERE th.closed_at::date = CURRENT_DATE
+      GROUP BY u.tg_id, u.name, u.first_name
+      ORDER BY net DESC
+      LIMIT 20
+    `);
+
+    if (rankResult.rows.length === 0) {
+      return bot.sendMessage(chatId, '🏆 *التصنيف اليومي*\n\n📭 لا توجد صفقات مغلقة اليوم بعد.\n\nسيتم تحديث التصنيف عند إغلاق الصفقات.', { parse_mode: 'Markdown' });
+    }
+
+    let rankText = '🏆 *التصنيف اليومي للأعضاء*\n━━━━━━━━━━━━━━━━━━━━\n\n';
+    const medals = ['🥇', '🥈', '🥉'];
+    let myRank = null;
+
+    rankResult.rows.forEach((row, idx) => {
+      const medal = idx < 3 ? medals[idx] : `${idx + 1}.`;
+      const name = row.name || row.first_name || 'مستخدم';
+      const net = Number(row.net);
+      const netSign = net >= 0 ? '+' : '';
+      const line = `${medal} *${name}*\n   💰 صافي: ${netSign}$${net.toFixed(2)} | 📊 صفقات: ${row.trade_count}\n`;
+      rankText += line;
+      if (String(row.tg_id) === String(tgId)) myRank = idx + 1;
+    });
+
+    rankText += '\n━━━━━━━━━━━━━━━━━━━━';
+    if (myRank !== null) {
+      rankText += `\n\n📍 *ترتيبك اليوم:* #${myRank}`;
+    } else {
+      rankText += '\n\n📍 لم تُغلق أي صفقة اليوم بعد.';
+    }
+
+    await bot.sendMessage(chatId, rankText, { parse_mode: 'Markdown' });
+  } catch (e) {
+    await bot.sendMessage(chatId, '❌ حدث خطأ أثناء تحميل التصنيف. حاول مرة أخرى.', { parse_mode: 'Markdown' });
+  }
+});
+
+// ===== Trade Closer Users - check if user can close trades =====
+async function isTradeCloser(tgId) {
+  try {
+    const result = await q(`SELECT value FROM settings WHERE key = 'trade_closers'`);
+    if (result.rows.length === 0) return false;
+    const ids = result.rows[0].value.split(',').map(s => s.trim()).filter(Boolean);
+    return ids.includes(String(tgId));
+  } catch (e) { return false; }
+}
+
+// /myclose - show open trades for trade closers
+bot.onText(/^\/myclose$/i, async (msg) => {
+  const chatId = msg.chat.id;
+  const tgId = msg.from.id;
+
+  const canClose = await isTradeCloser(tgId);
+  if (!canClose) return;
+
+  try {
+    const user = await q(`SELECT id FROM users WHERE tg_id = $1`, [tgId]);
+    if (user.rows.length === 0) return bot.sendMessage(chatId, '❌ الحساب غير موجود.');
+
+    const trades = await q(
+      `SELECT id, symbol, direction, pnl, opened_at, duration_seconds FROM trades WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC`,
+      [user.rows[0].id]
+    );
+
+    if (trades.rows.length === 0) {
+      return bot.sendMessage(chatId, '📊 لا توجد لديك صفقات مفتوحة حالياً.');
+    }
+
+    let text = '📊 *صفقاتك المفتوحة*\n━━━━━━━━━━━━━━━━━━━━\n\n';
+    const buttons = [];
+    for (const t of trades.rows) {
+      const pnl = Number(t.pnl || 0);
+      text += `🔸 صفقة #${t.id} — ${t.symbol || 'XAUUSD'}\n   الاتجاه: ${t.direction || '—'} | PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n\n`;
+      buttons.push([
+        { text: `✅ ربح #${t.id}`, callback_data: `closer_profit_${t.id}` },
+        { text: `❌ خسارة #${t.id}`, callback_data: `closer_loss_${t.id}` },
+        { text: `🔒 حالي #${t.id}`, callback_data: `closer_current_${t.id}` }
+      ]);
+    }
+
+    await bot.sendMessage(chatId, text, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: buttons }
+    });
+  } catch (e) {
+    bot.sendMessage(chatId, '❌ حدث خطأ. حاول مرة أخرى.');
+  }
+});
+
 // ===== Helper: Multilingual rank label =====
 function getRankLabel(rank, lang = 'ar') {
   const labels = {
@@ -535,7 +637,8 @@ bot.onText(/^\/help$/, (msg) => {
         [{ text: '📊 التداول', callback_data: 'panel_trades' }, { text: '⛔ الحظر', callback_data: 'panel_ban' }],
         [{ text: '💰 السحب', callback_data: 'panel_withdraw' }, { text: '📣 التواصل', callback_data: 'panel_comm' }],
         [{ text: '🎁 المكافآت', callback_data: 'panel_rewards' }, { text: '🔐 الجلسات', callback_data: 'panel_sessions' }],
-        [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }]
+        [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }],
+        [{ text: '🔓 مغلقين الصفقات', callback_data: 'panel_closers' }]
       ]
     }
   });
@@ -1321,6 +1424,49 @@ bot.on('callback_query', async (callbackQuery) => {
     return startKycFlow(chatId, callbackQuery.from.id);
   }
 
+  // ===== Trade Closer callbacks (non-admin users with closer permission) =====
+  if (data.startsWith('closer_profit_') || data.startsWith('closer_loss_') || data.startsWith('closer_current_')) {
+    const fromId = callbackQuery.from.id;
+    const canClose = await isTradeCloser(fromId);
+    if (!canClose) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: '⛔ غير مصرح' });
+    }
+    await bot.answerCallbackQuery(callbackQuery.id);
+
+    const parts = data.split('_');
+    const tradeId = Number(parts[parts.length - 1]);
+    const action = data.startsWith('closer_profit_') ? 'profit' : data.startsWith('closer_loss_') ? 'loss' : 'current';
+
+    try {
+      const tr = await q(`SELECT t.*, u.tg_id, u.balance FROM trades t JOIN users u ON u.id = t.user_id WHERE t.id = $1 AND t.status = 'open'`, [tradeId]);
+      if (tr.rows.length === 0) return bot.sendMessage(chatId, '❌ الصفقة غير موجودة أو مغلقة.');
+      const trade = tr.rows[0];
+
+      // Verify this trade belongs to the closer
+      if (String(trade.tg_id) !== String(fromId)) {
+        return bot.sendMessage(chatId, '❌ هذه الصفقة لا تخصك.');
+      }
+
+      if (action === 'current') {
+        const pnl = Number(trade.pnl || 0);
+        await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
+        if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]);
+        else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), trade.user_id]);
+        await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'user_close_current')`, [trade.user_id, pnl]);
+        const duration = Math.floor((Date.now() - new Date(trade.opened_at).getTime()) / 1000);
+        await q(`INSERT INTO trades_history (user_id, trade_id, symbol, direction, entry_price, exit_price, lot_size, pnl, duration_seconds, opened_at, closed_at, close_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),'user_close')`, [trade.user_id, tradeId, trade.symbol || 'XAUUSD', trade.direction || 'BUY', trade.entry_price || 0, trade.current_price || 0, trade.lot_size || 0.05, pnl, duration, trade.opened_at]);
+        return bot.sendMessage(chatId, `✅ *تم إغلاق الصفقة #${tradeId}*\n\n${pnl >= 0 ? '🟢 ربح' : '🔴 خسارة'}: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`, { parse_mode: 'Markdown' });
+      }
+
+      // For profit/loss, ask for amount
+      const closerPendingKey = `closer_${fromId}`;
+      adminPending[closerPendingKey] = { action: `closer_${action}`, tradeId, userId: trade.user_id, expiresAt: Date.now() + 120000 };
+      return bot.sendMessage(chatId, `💰 *${action === 'profit' ? 'إغلاق بربح' : 'إغلاق بخسارة'} — صفقة #${tradeId}*\n\nأرسل المبلغ:\nمثال: \`50\``, { parse_mode: 'Markdown' });
+    } catch (e) {
+      return bot.sendMessage(chatId, '❌ حدث خطأ: ' + e.message);
+    }
+  }
+
   if (data === 'wallet_unavailable') {
     await bot.answerCallbackQuery(callbackQuery.id, { text: 'رابط المحفظة غير مضبوط حالياً' });
     return bot.sendMessage(chatId, '⚠️ رابط المحفظة غير مضبوط على السيرفر حالياً. اضبط `WEBAPP_URL` في البيئة ثم أعد المحاولة.', { parse_mode: 'Markdown' });
@@ -1424,7 +1570,8 @@ bot.on('callback_query', async (callbackQuery) => {
           [{ text: '📊 التداول', callback_data: 'panel_trades' }, { text: '⛔ الحظر', callback_data: 'panel_ban' }],
           [{ text: '💰 السحب', callback_data: 'panel_withdraw' }, { text: '📣 التواصل', callback_data: 'panel_comm' }],
           [{ text: '🎁 المكافآت', callback_data: 'panel_rewards' }, { text: '🔐 الجلسات', callback_data: 'panel_sessions' }],
-          [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }]
+          [{ text: '🔧 الصيانة', callback_data: 'panel_maintenance' }, { text: '🤝 الإحالات', callback_data: 'panel_referrals' }],
+          [{ text: '🔓 مغلقين الصفقات', callback_data: 'panel_closers' }]
         ]
       }
     });
@@ -1569,7 +1716,49 @@ bot.on('callback_query', async (callbackQuery) => {
     });
   }
 
+  // ===== Trade Closers Section =====
+  if (data === 'panel_closers') {
+    let closersList = 'لا يوجد';
+    try {
+      const result = await q(`SELECT value FROM settings WHERE key = 'trade_closers'`);
+      if (result.rows.length > 0 && result.rows[0].value) {
+        const ids = result.rows[0].value.split(',').filter(s => s.trim());
+        if (ids.length > 0) {
+          const names = [];
+          for (const id of ids) {
+            const u = await q(`SELECT name, first_name FROM users WHERE tg_id = $1`, [id]);
+            const n = u.rows.length > 0 ? (u.rows[0].name || u.rows[0].first_name || id) : id;
+            names.push(`${n} (\`${id}\`)`);
+          }
+          closersList = names.join('\n');
+        }
+      }
+    } catch(e) {}
+
+    return bot.editMessageText(`🔓 *مغلقين الصفقات*\n\nالمستخدمون اللي يقدرون يسكرون صفقاتهم بأنفسهم:\n\n${closersList}\n\nℹ️ هؤلاء يكتبون /myclose في البوت لعرض صفقاتهم وإغلاقها.`, {
+      chat_id: chatId, message_id: msg.message_id, parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '➕ إضافة مُغلق', callback_data: 'act_closer_add' }],
+          [{ text: '➖ إزالة مُغلق', callback_data: 'act_closer_remove' }],
+          backBtn[0]
+        ]
+      }
+    });
+  }
+
   // ===== ACTION HANDLERS =====
+
+  // -- Trade Closer actions --
+  if (data === 'act_closer_add') {
+    adminPending[chatId] = { action: 'closer_add', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '➕ *إضافة مُغلق صفقات*\n\nأرسل الأيدي (tg\\_id):\nمثال: `123456`', { parse_mode: 'Markdown' });
+  }
+
+  if (data === 'act_closer_remove') {
+    adminPending[chatId] = { action: 'closer_remove', expiresAt: Date.now() + 120000 };
+    return bot.sendMessage(chatId, '➖ *إزالة مُغلق صفقات*\n\nأرسل الأيدي (tg\\_id):\nمثال: `123456`', { parse_mode: 'Markdown' });
+  }
 
   // -- Withdraw actions --
   if (data === 'act_stopwithdraw') {
@@ -1741,9 +1930,40 @@ bot.on('message', async (msg) => {
   }
 
   const chatId = msg.chat.id;
+  const fromTgId = msg.from?.id;
+
+  // Handle trade closer pending input (non-admin users who can close trades)
+  const closerKey = `closer_${fromTgId}`;
+  if (adminPending[closerKey]) {
+    const closerPending = adminPending[closerKey];
+    if (closerPending.expiresAt && Date.now() > closerPending.expiresAt) {
+      delete adminPending[closerKey];
+    } else if (msg.text && !msg.text.startsWith('/')) {
+      const amount = parseFloat((msg.text || '').trim());
+      delete adminPending[closerKey];
+      if (isNaN(amount) || amount <= 0) return bot.sendMessage(chatId, '❌ المبلغ غير صحيح.');
+      try {
+        const pnl = closerPending.action === 'closer_profit' ? amount : -amount;
+        const tradeId = closerPending.tradeId;
+        const tr = await q(`SELECT t.*, u.tg_id FROM trades t JOIN users u ON u.id = t.user_id WHERE t.id = $1 AND t.status = 'open'`, [tradeId]);
+        if (tr.rows.length === 0) return bot.sendMessage(chatId, '❌ الصفقة مغلقة أو غير موجودة.');
+        const trade = tr.rows[0];
+        await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
+        if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]);
+        else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), trade.user_id]);
+        await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'user_close_manual')`, [trade.user_id, pnl]);
+        const duration = Math.floor((Date.now() - new Date(trade.opened_at).getTime()) / 1000);
+        await q(`INSERT INTO trades_history (user_id, trade_id, symbol, direction, entry_price, exit_price, lot_size, pnl, duration_seconds, opened_at, closed_at, close_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),'user_close')`, [trade.user_id, tradeId, trade.symbol || 'XAUUSD', trade.direction || 'BUY', trade.entry_price || 0, trade.current_price || 0, trade.lot_size || 0.05, pnl, duration, trade.opened_at]);
+        return bot.sendMessage(chatId, `✅ *تم إغلاق الصفقة #${tradeId}*\n\n${pnl >= 0 ? '🟢 ربح' : '🔴 خسارة'}: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`, { parse_mode: 'Markdown' });
+      } catch (e) {
+        return bot.sendMessage(chatId, '❌ خطأ: ' + e.message);
+      }
+    }
+  }
+
   if (String(chatId) !== String(ADMIN_ID)) return;
   if (!adminPending[chatId]) return;
-  if (msg.text && msg.text.startsWith('/')) { delete adminPending[chatId]; return; } // Cancel on command
+  if (msg.text && msg.text.startsWith('/')) { delete adminPending[chatId]; return; }
 
   const pending = adminPending[chatId];
   if (pending.expiresAt && Date.now() > pending.expiresAt) {
@@ -1823,6 +2043,33 @@ bot.on('message', async (msg) => {
       const newList = newIds.join(',');
       await q(`INSERT INTO settings (key, value) VALUES ('maintenance_whitelist', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [newList]);
       bot.sendMessage(chatId, `✅ *تم إزالة ${tgId} من القائمة البيضاء*\n\nالقائمة الحالية: ${newIds.length > 0 ? newIds.join(', ') : 'فارغة'}`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Closer Add --
+    if (pending.action === 'closer_add') {
+      const tgId = text.trim();
+      if (!tgId || isNaN(tgId)) return bot.sendMessage(chatId, '❌ أيدي غير صحيح.');
+      const userCheck = await q(`SELECT name, first_name FROM users WHERE tg_id = $1`, [tgId]);
+      if (userCheck.rows.length === 0) return bot.sendMessage(chatId, `❌ المستخدم ${tgId} غير موجود.`);
+      const result = await q(`SELECT value FROM settings WHERE key = 'trade_closers'`);
+      let ids = result.rows.length > 0 ? (result.rows[0].value || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+      if (ids.includes(tgId)) return bot.sendMessage(chatId, `ℹ️ الأيدي ${tgId} موجود مسبقاً في قائمة المغلقين.`);
+      ids.push(tgId);
+      await q(`INSERT INTO settings (key, value) VALUES ('trade_closers', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [ids.join(',')]);
+      const userName = userCheck.rows[0].name || userCheck.rows[0].first_name || tgId;
+      bot.sendMessage(chatId, `✅ *تم إضافة ${userName} (${tgId}) كمغلق صفقات*\n\nيمكنه الآن كتابة /myclose لعرض وإغلاق صفقاته.`, { parse_mode: 'Markdown' });
+    }
+
+    // -- Closer Remove --
+    if (pending.action === 'closer_remove') {
+      const tgId = text.trim();
+      if (!tgId || isNaN(tgId)) return bot.sendMessage(chatId, '❌ أيدي غير صحيح.');
+      const result = await q(`SELECT value FROM settings WHERE key = 'trade_closers'`);
+      let ids = result.rows.length > 0 ? (result.rows[0].value || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+      if (!ids.includes(tgId)) return bot.sendMessage(chatId, `❌ الأيدي ${tgId} غير موجود في قائمة المغلقين.`);
+      ids = ids.filter(id => id !== tgId);
+      await q(`INSERT INTO settings (key, value) VALUES ('trade_closers', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [ids.join(',')]);
+      bot.sendMessage(chatId, `✅ *تم إزالة ${tgId} من قائمة المغلقين*\n\nالقائمة الحالية: ${ids.length > 0 ? ids.join(', ') : 'فارغة'}`, { parse_mode: 'Markdown' });
     }
 
   } catch(e) {

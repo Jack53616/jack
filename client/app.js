@@ -1,6 +1,60 @@
 // QL Trading AI v2.3 — Frontend logic (Enhanced with Target PnL & Real Prices)
 const TWA = window.Telegram?.WebApp;
 window.__BOT_USERNAME = 'test5616_bot';
+
+// ===== Security: attach the signed Telegram initData to every API request =====
+// The backend verifies this and derives the real user id from it, so a client
+// can no longer impersonate another user by sending a different tg_id.
+(function attachTelegramInitData() {
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      const isApi = url.startsWith("/api") || url.includes(location.origin + "/api");
+      const initData = window.Telegram?.WebApp?.initData || "";
+      if (isApi && initData) {
+        init = Object.assign({}, init);
+        const headers = new Headers(
+          (init && init.headers) ||
+            (typeof input !== "string" && input && input.headers) ||
+            {}
+        );
+        if (!headers.has("X-Telegram-Init-Data")) {
+          headers.set("X-Telegram-Init-Data", initData);
+        }
+        init.headers = headers;
+      }
+    } catch (e) {
+      /* never block a request because of the wrapper */
+    }
+    return _fetch(input, init);
+  };
+})();
+
+// ===== Telegram WebApp lifecycle (safe; no-op outside Telegram) =====
+(function initTelegramWebApp(){
+  try {
+    if (!TWA) return; // running in a normal browser — skip silently
+    TWA.ready?.();
+    TWA.expand?.();
+    // Match the app's dark/gold theme where supported (older clients throw → caught)
+    try { TWA.setHeaderColor?.('#0A0A0A'); } catch (e) {}
+    try { TWA.setBackgroundColor?.('#0A0A0A'); } catch (e) {}
+  } catch (e) {
+    /* ignore — keep working in non-Telegram environments */
+  }
+})();
+
+// ===== Mobile keyboard: collapse bottom nav while a field is focused =====
+(function keyboardNavHandling(){
+  const isField = (el)=> el && el.matches && el.matches('input, textarea, select');
+  document.addEventListener('focusin', (e)=>{
+    if (isField(e.target)) document.body.classList.add('kb-open');
+  });
+  document.addEventListener('focusout', (e)=>{
+    if (isField(e.target)) document.body.classList.remove('kb-open');
+  });
+})();
 const INVISIBLE_CHARS = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g;
 const VALID_KEY_CHARS = /^[A-Za-z0-9._\-+=]+$/;
 const KEY_FRAGMENT_RE = /[A-Za-z0-9][A-Za-z0-9._\-+=]{3,}[A-Za-z0-9=]?/g;
@@ -176,6 +230,24 @@ const i18n = {
     confirm: "Confirm",
     buyKey: "Buy a key",
     tabWallet: "Home",
+    tabMore: "More",
+    totalBalance: "Total Balance",
+    todayPnl: "Today's PnL",
+    quickActions: "Quick Actions",
+    transfer: "Transfer",
+    trade: "Trade",
+    openTrades: "Open Trades",
+    viewAll: "View all",
+    yourBalance: "Your Balance",
+    selectMethod: "Select Method",
+    walletAddress: "Wallet Address",
+    amountLabel: "Amount",
+    recipientId: "Recipient Telegram ID",
+    noteLabel: "Note (optional)",
+    max: "Max",
+    vipMember: "VIP Member",
+    vipMemberSub: "Premium trading account",
+    openChat: "Open Chat",
     tabStats: "Statistics",
     performance: "Performance",
     today: "Today",
@@ -270,6 +342,24 @@ const i18n = {
     confirm: "تأكيد",
     buyKey: "شراء مفتاح",
     tabWallet: "الرئيسية",
+    tabMore: "المزيد",
+    totalBalance: "الرصيد الكلي",
+    todayPnl: "ربح اليوم",
+    quickActions: "إجراءات سريعة",
+    transfer: "تحويل",
+    trade: "تداول",
+    openTrades: "الصفقات المفتوحة",
+    viewAll: "عرض الكل",
+    yourBalance: "رصيدك",
+    selectMethod: "اختر الطريقة",
+    walletAddress: "عنوان المحفظة",
+    amountLabel: "المبلغ",
+    recipientId: "آيدي المستلم",
+    noteLabel: "ملاحظة (اختياري)",
+    max: "الأقصى",
+    vipMember: "عضو VIP",
+    vipMemberSub: "حساب تداول مميّز",
+    openChat: "افتح المحادثة",
     tabStats: "الإحصائيات",
     performance: "الأداء",
     today: "اليوم",
@@ -364,6 +454,24 @@ const i18n = {
     confirm: "Onayla",
     buyKey: "Anahtar satın al",
     tabWallet: "Ana sayfa",
+    tabMore: "Daha",
+    totalBalance: "Toplam Bakiye",
+    todayPnl: "Bugünkü K/Z",
+    quickActions: "Hızlı İşlemler",
+    transfer: "Transfer",
+    trade: "İşlem",
+    openTrades: "Açık İşlemler",
+    viewAll: "Tümünü gör",
+    yourBalance: "Bakiyeniz",
+    selectMethod: "Yöntem Seçin",
+    walletAddress: "Cüzdan Adresi",
+    amountLabel: "Tutar",
+    recipientId: "Alıcı Telegram ID",
+    noteLabel: "Not (isteğe bağlı)",
+    max: "Maks",
+    vipMember: "VIP Üye",
+    vipMemberSub: "Premium işlem hesabı",
+    openChat: "Sohbeti Aç",
     tabStats: "İstatistikler",
     performance: "Performans",
     today: "Bugün",
@@ -458,6 +566,24 @@ const i18n = {
     confirm: "Bestätigen",
     buyKey: "Schlüssel kaufen",
     tabWallet: "Start",
+    tabMore: "Mehr",
+    totalBalance: "Gesamtsaldo",
+    todayPnl: "Heutiger GuV",
+    quickActions: "Schnellaktionen",
+    transfer: "Überweisen",
+    trade: "Handel",
+    openTrades: "Offene Trades",
+    viewAll: "Alle ansehen",
+    yourBalance: "Ihr Saldo",
+    selectMethod: "Methode wählen",
+    walletAddress: "Wallet-Adresse",
+    amountLabel: "Betrag",
+    recipientId: "Empfänger Telegram-ID",
+    noteLabel: "Notiz (optional)",
+    max: "Max",
+    vipMember: "VIP-Mitglied",
+    vipMemberSub: "Premium-Handelskonto",
+    openChat: "Chat öffnen",
     tabStats: "Statistik",
     performance: "Leistung",
     today: "Heute",
@@ -820,10 +946,19 @@ $$(".seg-btn").forEach(btn=>{
   });
 });
 
-$("#goWithdraw").onclick = ()=>{ document.querySelector('[data-tab="withdraw"]').click(); }
-$("#goStats").onclick  = ()=>{ document.querySelector('[data-tab="stats"]').click(); }
-$("#goVerify").onclick  = ()=>{ openKycFromMiniApp(); }
-$("#goSupport").onclick  = ()=>{ document.querySelector('[data-tab="support"]').click(); }
+// ===== Home quick actions (redesign Step 3): Deposit / Withdraw / Transfer / Trade =====
+$("#goWithdraw")?.addEventListener("click", ()=> document.querySelector('[data-tab="withdraw"]')?.click());
+$("#goDeposit")?.addEventListener("click", ()=> window.open("https://wa.me/18259710501","_blank"));
+$("#goTransfer")?.addEventListener("click", ()=> document.querySelector('[data-tab="transfer"]')?.click());
+$("#goTrade")?.addEventListener("click", ()=> document.querySelector('[data-tab="trades"]')?.click());
+$("#openTradesViewAll")?.addEventListener("click", ()=> document.querySelector('[data-tab="trades"]')?.click());
+// Privacy: blur/unblur the balance value
+$("#balanceEye")?.addEventListener("click", ()=>{
+  const el = document.getElementById('balance');
+  const hidden = el?.classList.toggle('balance-hidden');
+  const eye = document.getElementById('balanceEye');
+  if (eye) eye.textContent = hidden ? '🙈' : '👁';
+});
 
 function openKycFromMiniApp() {
   const botUsername = window.__BOT_USERNAME || 'test5616_bot';
@@ -896,6 +1031,50 @@ btnSettings?.addEventListener("click", openSettings);
 spClose?.addEventListener("click", closeSettings);
 settingsBackdrop?.addEventListener("click", closeSettings);
 
+// ===== Bottom navigation wiring (redesign Step 2) =====
+// Additive only: the existing .seg-btn tab-switch handler still does the
+// switching + lazy-loading. This just opens/closes the "More" sheet and keeps
+// the bottom bar's active highlight in sync.
+(function bottomNavSetup(){
+  const moreBtn = document.getElementById('moreBtn');
+  const moreSheet = document.getElementById('moreSheet');
+  const moreTabs = ['stats','transfer','requests','support'];
+  const openMore = ()=> moreSheet?.classList.add('show');
+  const closeMore = ()=> moreSheet?.classList.remove('show');
+
+  moreBtn?.addEventListener('click', (e)=>{ e.stopPropagation(); openMore(); });
+  document.getElementById('moreCancel')?.addEventListener('click', closeMore);
+  document.getElementById('moreSettings')?.addEventListener('click', ()=>{ closeMore(); openSettings(); });
+  document.getElementById('moreVerify')?.addEventListener('click', ()=>{ closeMore(); openKycFromMiniApp(); });
+
+  function syncBottomNav(tab){
+    document.querySelectorAll('.bottomnav .seg-btn, .bottomnav .bn-btn').forEach(b=>b.classList.remove('bn-active'));
+    if(moreTabs.includes(tab)){
+      moreBtn?.classList.add('bn-active');
+    } else {
+      document.querySelector(`.bottomnav .seg-btn[data-tab="${tab}"]`)?.classList.add('bn-active');
+    }
+  }
+
+  // Runs alongside the existing tab-switch handler on every .seg-btn[data-tab].
+  document.querySelectorAll('.seg-btn[data-tab]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const tab = btn.dataset.tab;
+      syncBottomNav(tab);
+      if(moreTabs.includes(tab)) closeMore();
+    });
+  });
+
+  // Tap outside the sheet closes it.
+  document.addEventListener('click', (e)=>{
+    if(!moreSheet || !moreSheet.classList.contains('show')) return;
+    if(moreSheet.contains(e.target) || (moreBtn && moreBtn.contains(e.target))) return;
+    closeMore();
+  });
+
+  syncBottomNav('wallet');
+})();
+
 const sheet = $("#sheet");
 $("#pickMethod").addEventListener("click", ()=> sheet.classList.add("show"));
 $("#sCancel").addEventListener("click", ()=> sheet.classList.remove("show"));
@@ -925,6 +1104,16 @@ function renderMethod(){
   }
 }
 renderMethod();
+
+// "Max" buttons: fill amount with the current balance (display convenience only)
+$("#wdMax")?.addEventListener("click", ()=>{
+  const b = Number(state.user?.balance || 0);
+  const a = document.getElementById('amount'); if(a){ a.value = b.toFixed(2); }
+});
+$("#trMax")?.addEventListener("click", ()=>{
+  const b = Number(state.user?.balance || 0);
+  const a = document.getElementById('transferAmount'); if(a){ a.value = b.toFixed(2); }
+});
 
 // ===== Withdraw Confirmation Modal (Shows fee details) =====
 function showWithdrawConfirm(tg, amount, method, address, feeData) {
@@ -1143,13 +1332,17 @@ async function loadMyTransfers() {
   if (!tg) return;
   const isAr = state.lang === 'ar';
   try {
+    const el = $("#transferList");
+    // Loading skeleton on first load
+    if (el && el.children.length === 0) {
+      el.innerHTML = `<div class="skel-row"></div><div class="skel-row"></div>`;
+    }
     const res = await fetch(`/api/wallet/transfers/${tg}`).then(r => r.json());
     const list = res.data || [];
-    const el = $("#transferList");
     if (!el) return;
 
     if (list.length === 0) {
-      el.innerHTML = `<div class="empty-state">${isAr ? 'لا توجد تحويلات بعد' : 'No transfers yet'}</div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔄</div><div class="empty-state-text">${isAr ? 'لا توجد تحويلات بعد' : 'No transfers yet'}</div></div>`;
       return;
     }
     el.innerHTML = list.map(t => {
@@ -1243,6 +1436,10 @@ function hydrateUser(user){
   const balance = Number(user.balance || 0);
   
   $("#balance").textContent = "$" + balance.toFixed(2);
+  // Mirror balance into the withdraw/transfer forms (display only)
+  const _balStr = "$" + balance.toFixed(2);
+  const _wdB = document.getElementById('wdBalance'); if(_wdB) _wdB.textContent = _balStr;
+  const _trB = document.getElementById('trBalance'); if(_trB) _trB.textContent = _balStr;
   $("#subLeft").textContent = user.sub_expires ? new Date(user.sub_expires).toLocaleDateString() : "—";
   
   // pnlDay and pnlMonth are updated by loadHomeStats() from real API data
@@ -1693,13 +1890,30 @@ function startFeed(){
 // Track rendered trade IDs to avoid full re-render on update
 let _renderedTradeIds = [];
 
+// Map a trading symbol to a small asset icon (display only).
+function assetIcon(symbol){
+  const s = String(symbol||'').toUpperCase();
+  if(s.includes('BTC')) return '🟠';
+  if(s.includes('ETH')) return '🔷';
+  if(s.includes('XAU')||s.includes('GOLD')) return '🥇';
+  if(s.includes('XAG')||s.includes('SILVER')) return '🥈';
+  if(s.includes('BNB')) return '🟡';
+  if(s.includes('SOL')) return '🟣';
+  if(s.includes('XRP')) return '⚫';
+  return '📊';
+}
+
 async function loadTrades(forceRedraw = false){
   const tg = state.user?.tg_id || Number(localStorage.getItem("tg"));
   if(!tg) return;
-  
+
   try{
-    const r = await fetch(`/api/trades/${tg}`).then(r=>r.json());
     const box = $("#tradesList");
+    // Loading skeleton — first load only (before any trade card exists)
+    if(box && _renderedTradeIds.length === 0 && !box.querySelector('.trade-card')){
+      box.innerHTML = `<div class="tc-skeleton"></div><div class="tc-skeleton"></div>`;
+    }
+    const r = await fetch(`/api/trades/${tg}`).then(r=>r.json());
     
     // Calculate total PnL from all open trades
     let totalPnl = 0;
@@ -1720,7 +1934,7 @@ async function loadTrades(forceRedraw = false){
         
         r.trades.forEach(trade=>{
           const div = document.createElement("div");
-          div.className="op";
+          div.className="trade-card";
           // Use unique key combining id + type to avoid conflicts
           const tradeKey = `${trade.trade_type}_${trade.id}`;
           div.dataset.tradeId = trade.id;
@@ -1762,31 +1976,56 @@ async function loadTrades(forceRedraw = false){
           const progressPercent = Math.min(100, Math.round((elapsed / duration) * 100));
           const progressColor = pnl >= 0 ? '#00d68f' : '#ff3b63';
           const canClose = !isMassTrade && (trade.trade_type !== 'custom' || trade.can_close);
-          
+
+          // Display-only derivations (no calculations changed)
+          const dir = String(trade.direction || '').toLowerCase();
+          const isLong = /long|buy/.test(dir);
+          const dirLabel = isLong ? 'LONG' : 'SHORT';
+          const sl = (trade.stop_loss != null && Number(trade.stop_loss) > 0) ? Number(trade.stop_loss) : null;
+          const tp = (trade.take_profit != null && Number(trade.take_profit) > 0) ? Number(trade.take_profit) : null;
+          const fmtPrice = (n)=> '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+          const amountLbl = state.lang === 'ar' ? 'الكمية' : 'Amount';
+          const editLbl = state.lang === 'ar' ? 'تعديل' : 'Edit';
+          const closeLbl = state.lang === 'ar' ? 'إغلاق' : 'Close';
+          const openLbl = state.lang === 'ar' ? 'مفتوحة' : 'OPEN';
+
           div.innerHTML = `
-            <div style="width:100%;">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
-                <div style="flex:1;">
-                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                    <span>${trade.symbol} ${trade.direction} (${trade.lot_size})</span>
-                    ${speedIcon ? `<span style="font-size:12px;">${speedIcon}</span>` : ''}
-                    ${tradeLabel ? `<span style="font-size:10px; background:rgba(0,102,255,0.15); color:${labelColor}; padding:2px 6px; border-radius:10px;">${tradeLabel}</span>` : ''}
-                  </div>
-                  <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
-                    <small class="trade-timer" style="opacity:0.6">⏱ ${timeStr}</small>
-                    <small class="trade-price" style="display:none"></small>
+            <div class="tc-head">
+              <div class="tc-asset">
+                <span class="tc-ic">${assetIcon(trade.symbol)}</span>
+                <div>
+                  <div class="tc-sym">${trade.symbol}</div>
+                  <div class="tc-sub">
+                    <span class="badge-dir ${isLong ? 'long' : 'short'}">${dirLabel}</span>
+                    ${tradeLabel
+                      ? `<span class="badge-type" style="color:${labelColor}">${tradeLabel}</span>`
+                      : `<span class="badge-status">${openLbl}</span>`}
+                    ${speedIcon ? `<span class="badge-type">${speedIcon}</span>` : ''}
                   </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <div style="text-align:right;">
-                    <b class="trade-pnl" style="color:${pnlColor}; font-size:16px;">${pnlSign}$${Math.abs(pnl).toFixed(2)}</b>
-                  </div>
-                  ${canClose ? `<button class="btn-close-trade" data-trade-id="${trade.id}" data-trade-type="${trade.trade_type || 'regular'}" style="padding:4px 8px; font-size:12px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer;">✕</button>` : ''}
-                </div>
               </div>
-              <div style="width:100%; height:4px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden;">
-                <div class="trade-progress" style="width:${progressPercent}%; height:100%; background:${progressColor}; border-radius:2px; transition:width 1s linear;"></div>
+              <div class="tc-pnl-box">
+                <span class="tc-pnl-label">PnL</span>
+                <b class="trade-pnl" style="color:${pnlColor}">${pnlSign}$${Math.abs(pnl).toFixed(2)}</b>
               </div>
+            </div>
+            <div class="tc-grid">
+              <div class="tc-cell"><span class="tc-k">${amountLbl}</span><span class="tc-v">${trade.lot_size}</span></div>
+              <div class="tc-cell"><span class="tc-k">SL</span><span class="tc-v">${sl != null ? fmtPrice(sl) : '—'}</span></div>
+              <div class="tc-cell"><span class="tc-k">TP</span><span class="tc-v">${tp != null ? fmtPrice(tp) : '—'}</span></div>
+            </div>
+            <div class="tc-foot">
+              <div class="tc-timer-wrap">
+                <small class="trade-timer">⏱ ${timeStr}</small>
+                <small class="trade-price" style="display:none"></small>
+              </div>
+              ${canClose ? `<div class="tc-actions">
+                <button class="btn-edit-trade" type="button">✎ ${editLbl}</button>
+                <button class="btn-close-trade" data-trade-id="${trade.id}" data-trade-type="${trade.trade_type || 'regular'}" type="button">✕ ${closeLbl}</button>
+              </div>` : ''}
+            </div>
+            <div class="tc-progress-wrap">
+              <div class="trade-progress" style="width:${progressPercent}%; background:${progressColor};"></div>
             </div>
           `;
           box.appendChild(div);
@@ -1824,7 +2063,16 @@ async function loadTrades(forceRedraw = false){
             }
           });
         });
-        
+
+        // Edit buttons: reveal/focus the existing SL/TP form (edit flow preserved)
+        $$(".btn-edit-trade").forEach(btn=>{
+          btn.addEventListener("click", ()=>{
+            const slInput = document.getElementById('sl');
+            slInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(()=> slInput?.focus(), 350);
+          });
+        });
+
       } else {
         // Smart update: only update PnL, timer, price, progress bar in-place (no flicker)
         r.trades.forEach(trade => {
@@ -1880,14 +2128,15 @@ async function loadTrades(forceRedraw = false){
       updatePnLDisplay(totalPnl);
       
     } else {
-      // No open trades - clear list only if it had trades before
-      if (_renderedTradeIds.length > 0 || box.innerHTML === '' || forceRedraw) {
+      // No open trades - clear list if it had trades, on force, or while skeleton shows
+      if (_renderedTradeIds.length > 0 || box.innerHTML === '' || forceRedraw || box.querySelector('.tc-skeleton')) {
         box.innerHTML = "";
         _renderedTradeIds = [];
         const emptyDiv = document.createElement("div");
-        emptyDiv.className="op";
+        emptyDiv.className="tc-empty";
         const noTradesText = state.lang === 'ar' ? 'لا توجد صفقات مفتوحة' : 'No open trades';
-        emptyDiv.innerHTML = `<span style="opacity:0.5">${noTradesText}</span>`;
+        const emptySub = state.lang === 'ar' ? 'ستظهر صفقاتك المفتوحة هنا' : 'Your open trades will appear here';
+        emptyDiv.innerHTML = `<div class="tc-empty-ic">📊</div><div class="tc-empty-title">${noTradesText}</div><div class="tc-empty-sub">${emptySub}</div>`;
         box.appendChild(emptyDiv);
       }
       
@@ -1913,9 +2162,29 @@ function notify(msg){
   const el = document.createElement("div");
   el.className="feed item";
   el.textContent = msg;
-  $("#feed").prepend(el);
+  $("#feed")?.prepend(el);
   $("#sndNotify")?.play().catch(()=>{});
   setTimeout(()=>{ el.remove();}, 6000);
+  showToast(msg);
+}
+
+// Floating toast — visible on any tab (redesign Step 7)
+function showToast(msg){
+  let host = document.getElementById('toastHost');
+  if(!host){
+    host = document.createElement('div');
+    host.id = 'toastHost';
+    host.className = 'toast-host';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.className = 'toast-pop';
+  if(/❌|⚠️|🚫|🔴/.test(msg)) t.classList.add('err');
+  else if(/✅|🎉|🟢|💰/.test(msg)) t.classList.add('ok');
+  t.textContent = msg;
+  host.appendChild(t);
+  requestAnimationFrame(()=> t.classList.add('show'));
+  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=> t.remove(), 250); }, 3200);
 }
 
 // Snow effect removed - using minimal design

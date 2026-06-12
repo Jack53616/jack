@@ -202,7 +202,7 @@ export const getToken = async (req, res) => {
 
     res.json({ ok: true, token });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -274,7 +274,7 @@ export const getUserInfo = async (req, res) => {
 
     res.json({ ok: true, user });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -306,7 +306,7 @@ export const checkSubscription = async (req, res) => {
 
     res.json({ ok: true, valid, expires: sub_expires });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -342,7 +342,7 @@ export const getReferralInfo = async (req, res) => {
       referrals: referrals.rows
     });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -368,6 +368,6 @@ export const updateCountry = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };

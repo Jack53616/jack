@@ -134,28 +134,25 @@
           <button id="btnLang" class="i-btn" title="Languages">🌍</button>
         </div>
       </div>
-      <nav class="seg glass">
-        <button class="seg-btn active" data-tab="wallet" data-i18n="tabWallet">Home</button>
-        <button class="seg-btn" data-tab="stats" data-i18n="tabStats">Statistics</button>
-        <button class="seg-btn" data-tab="trades" data-i18n="tabTrades">Trades</button>
-        <button class="seg-btn" data-tab="withdraw" data-i18n="tabWithdraw">Withdraw</button>
-        <button class="seg-btn" data-tab="transfer" data-i18n="tabTransfer">Transfer</button>
-        <button class="seg-btn" data-tab="requests" data-i18n="tabRequests">Requests</button>
-        <button class="seg-btn" data-tab="invite" data-i18n="tabInvite">Invite</button>
-        <button class="seg-btn" data-tab="support" data-i18n="tabSupport">Support</button>
-      </nav>
     </header>
 
     <main>
       <!-- Wallet Tab -->
       <section id="tab-wallet" class="tab show">
+        <!-- Premium balance card -->
         <div class="balance glass neon">
-          <div class="badge" id="userRankBadge">👤 Member</div>
+          <div class="bal-top">
+            <span class="bal-label" data-i18n="totalBalance">Total Balance</span>
+            <span class="badge" id="userRankBadge">👤 Member</span>
+          </div>
           <div class="b-row">
             <div id="balance" class="b-val">$0.00</div>
-            <div id="ticker" class="pnl">+0.00</div>
+            <button id="balanceEye" class="bal-eye" type="button" aria-label="Toggle balance">👁</button>
           </div>
-          <div id="tradeBadge" class="muted" data-i18n="noOpenTrade">No open trade</div>
+          <div class="bal-pnl-row">
+            <span class="bal-pnl-label" data-i18n="todayPnl">Today's PnL</span>
+            <span id="ticker" class="pnl">+0.00</span>
+          </div>
           <div class="chart" id="balanceChart">
             <svg viewBox="0 0 100 40" preserveAspectRatio="none">
               <defs>
@@ -195,12 +192,24 @@
             </svg>
           </div>
 
-          <div class="quick">
-            <button class="qa" id="goWithdraw">⬇<small data-i18n="withdraw">Withdraw</small></button>
-            <button class="qa" id="goStats">📈<small data-i18n="stats">Stats</small></button>
-            <button class="qa" id="goVerify">🪪<small data-i18n="verifyIdentity">Verify</small></button>
-            <button class="qa" id="goSupport">💬<small data-i18n="support">Support</small></button>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="qa-title" data-i18n="quickActions">Quick Actions</div>
+        <div class="quick">
+          <button class="qa" id="goDeposit"><span class="qa-ic">⬆️</span><small data-i18n="deposit">Deposit</small></button>
+          <button class="qa" id="goWithdraw"><span class="qa-ic">⬇️</span><small data-i18n="withdraw">Withdraw</small></button>
+          <button class="qa" id="goTransfer"><span class="qa-ic">🔄</span><small data-i18n="transfer">Transfer</small></button>
+          <button class="qa" id="goTrade"><span class="qa-ic">📈</span><small data-i18n="trade">Trade</small></button>
+        </div>
+
+        <!-- Open Trades preview -->
+        <div class="card glass open-preview">
+          <div class="c-title openp-head">
+            <span data-i18n="openTrades">Open Trades</span>
+            <button class="link-btn" id="openTradesViewAll" type="button" data-i18n="viewAll">View all</button>
           </div>
+          <div id="tradeBadge" class="muted" data-i18n="noOpenTrade">No open trade</div>
         </div>
 
         <div class="stats">
@@ -267,14 +276,34 @@
       <section id="tab-withdraw" class="tab">
         <div class="card glass">
           <div class="c-title" data-i18n="withdrawCrypto">Withdraw (Crypto only)</div>
-          <button id="pickMethod" class="btn">Method: <b id="methodLabel">USDT (TRC20)</b></button>
-          <div class="withdraw-form">
-            <input id="withdrawAddr" class="input" placeholder="Wallet Address / عنوان المحفظة"/>
-            <input id="amount" type="number" class="input" placeholder="Amount / المبلغ"/>
-            <button id="reqWithdraw" class="btn" data-i18n="request">Request</button>
+
+          <div class="balance-pill">
+            <span data-i18n="yourBalance">Your Balance</span>
+            <b id="wdBalance">$0.00</b>
           </div>
+
+          <div class="form-field">
+            <label class="field-label" data-i18n="selectMethod">Select Method</label>
+            <button id="pickMethod" class="method-select" type="button">
+              <span>Method: <b id="methodLabel">USDT (TRC20)</b></span>
+              <span class="chev">▾</span>
+            </button>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label" data-i18n="walletAddress">Wallet Address</label>
+            <input id="withdrawAddr" class="input" placeholder="Wallet Address / عنوان المحفظة"/>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label"><span data-i18n="amountLabel">Amount</span><button id="wdMax" class="max-btn" type="button" data-i18n="max">Max</button></label>
+            <input id="amount" type="number" class="input" placeholder="Amount / المبلغ"/>
+          </div>
+
+          <button id="reqWithdraw" class="btn btn-primary" data-i18n="request">Request</button>
           <small class="muted">* Enter your wallet address and amount to request withdrawal</small>
-          <div class="card glass" style="margin-top:10px">
+
+          <div class="card glass deposit-card">
             <div class="c-title" data-i18n="deposit">Deposit</div>
             <button id="whatsapp" class="btn ghost">WhatsApp</button>
           </div>
@@ -285,15 +314,31 @@
       <section id="tab-transfer" class="tab">
         <div class="card glass">
           <div class="c-title" data-i18n="transferTitle">Transfer to User</div>
-          <div class="withdraw-form">
-            <input id="transferToId" type="number" class="input" placeholder="Telegram ID المستلم / Recipient TG ID"/>
-            <input id="transferAmount" type="number" class="input" placeholder="المبلغ / Amount"/>
-            <input id="transferNote" class="input" placeholder="ملاحظة (اختياري) / Note (optional)"/>
-            <button id="reqTransfer" class="btn" data-i18n="sendTransfer">Send Transfer</button>
+
+          <div class="balance-pill">
+            <span data-i18n="yourBalance">Your Balance</span>
+            <b id="trBalance">$0.00</b>
           </div>
+
+          <div class="form-field">
+            <label class="field-label" data-i18n="recipientId">Recipient Telegram ID</label>
+            <input id="transferToId" type="number" class="input" placeholder="Telegram ID المستلم / Recipient TG ID"/>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label"><span data-i18n="amountLabel">Amount</span><button id="trMax" class="max-btn" type="button" data-i18n="max">Max</button></label>
+            <input id="transferAmount" type="number" class="input" placeholder="المبلغ / Amount"/>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label" data-i18n="noteLabel">Note (optional)</label>
+            <input id="transferNote" class="input" placeholder="ملاحظة (اختياري) / Note (optional)"/>
+          </div>
+
+          <button id="reqTransfer" class="btn btn-primary" data-i18n="sendTransfer">Send Transfer</button>
           <small class="muted" data-i18n="transferNote">* Transfer requires admin approval before completion</small>
         </div>
-        <div class="card glass" style="margin-top:10px;">
+        <div class="card glass transfer-history-card">
           <div class="c-title" data-i18n="transferHistory">Transfer History</div>
           <div id="transferList" class="ops withdrawal-list"></div>
         </div>
@@ -326,48 +371,48 @@
         <div class="card glass">
           <div class="c-title">🤝 <span data-i18n="inviteTitle">Invite Friends</span></div>
           <p class="muted" style="margin-bottom:12px;" data-i18n="inviteSub">Share your link and earn rewards when your friends deposit!</p>
-          <div id="referralLinkBox" style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2);border-radius:12px;padding:14px;margin-bottom:14px;">
-            <div style="font-size:11px;color:#888;margin-bottom:6px;" data-i18n="yourInviteLink">Your invite link:</div>
-            <div id="referralLink" style="font-size:13px;color:#FFD700;word-break:break-all;font-family:monospace;">Loading...</div>
+          <div id="referralLinkBox" class="ref-code-box">
+            <div class="ref-code-label" data-i18n="yourInviteLink">Your invite link:</div>
+            <div id="referralLink" class="ref-code">Loading...</div>
           </div>
           <button id="copyRefLinkBtn" style="width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#FFD700,#B8860B);color:#000;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:14px;">🔗 <span data-i18n="copyLink">Copy Link</span></button>
           <button id="shareRefLinkBtn" style="width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#DAA520,#8B6914);color:#fff;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:16px;">📨 <span data-i18n="share">Share</span></button>
         </div>
-        <div class="card glass" style="margin-top:12px;">
+        <div class="card glass ref-card">
           <div class="c-title">🎖️ <span data-i18n="rewards">Rewards</span></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
-            <div style="background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.1);border-radius:10px;padding:12px;text-align:center;">
-              <div style="font-size:22px;font-weight:800;color:#FFD700;" id="refEarnings">$0</div>
-              <div style="font-size:11px;color:#888;" data-i18n="totalEarnings">Total Earnings</div>
+          <div class="ref-rewards-grid">
+            <div class="ref-stat">
+              <div class="ref-stat-val" id="refEarnings">$0</div>
+              <div class="ref-stat-lbl" data-i18n="totalEarnings">Total Earnings</div>
             </div>
-            <div style="background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.1);border-radius:10px;padding:12px;text-align:center;">
-              <div style="font-size:22px;font-weight:800;color:#FFD700;" id="refCount">0</div>
-              <div style="font-size:11px;color:#888;" data-i18n="totalInvites">Total Invites</div>
+            <div class="ref-stat">
+              <div class="ref-stat-val" id="refCount">0</div>
+              <div class="ref-stat-lbl" data-i18n="totalInvites">Total Invites</div>
             </div>
-            <div style="background:rgba(0,214,143,0.06);border:1px solid rgba(0,214,143,0.15);border-radius:10px;padding:12px;text-align:center;">
-              <div style="font-size:22px;font-weight:800;color:#00d68f;" id="refTradeCommission">$0</div>
-              <div style="font-size:11px;color:#888;" data-i18n="tradeCommission">Trade Commission</div>
+            <div class="ref-stat green">
+              <div class="ref-stat-val" id="refTradeCommission">$0</div>
+              <div class="ref-stat-lbl" data-i18n="tradeCommission">Trade Commission</div>
             </div>
           </div>
-          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;">
-            <div style="font-size:12px;color:#aaa;margin-bottom:8px;">💫 <span data-i18n="rewardSystem">Reward System</span>:</div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-              <span style="font-size:12px;color:#ccc;" data-i18n="deposit500">Deposit $500+</span>
-              <span style="font-size:12px;color:#FFD700;font-weight:600;" data-i18n="youGet50">+$50 for you</span>
+          <div class="ref-info">
+            <div class="ref-info-head">💫 <span data-i18n="rewardSystem">Reward System</span></div>
+            <div class="ref-info-row">
+              <span data-i18n="deposit500">Deposit $500+</span>
+              <span class="gold" data-i18n="youGet50">+$50 for you</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-              <span style="font-size:12px;color:#ccc;" data-i18n="deposit1000">Deposit $1,000+</span>
-              <span style="font-size:12px;color:#FFD700;font-weight:600;" data-i18n="youGet100">+$100 for you</span>
+            <div class="ref-info-row">
+              <span data-i18n="deposit1000">Deposit $1,000+</span>
+              <span class="gold" data-i18n="youGet100">+$100 for you</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;">
-              <span style="font-size:12px;color:#ccc;" data-i18n="tradeProfit">Referral trade profit</span>
-              <span style="font-size:12px;color:#00d68f;font-weight:600;" data-i18n="youGet5pct">+5% commission</span>
+            <div class="ref-info-row">
+              <span data-i18n="tradeProfit">Referral trade profit</span>
+              <span class="green" data-i18n="youGet5pct">+5% commission</span>
             </div>
           </div>
         </div>
-        <div class="card glass" style="margin-top:12px;">
+        <div class="card glass ref-card">
           <div class="c-title">👥 <span data-i18n="yourReferrals">Your Referrals</span></div>
-          <div id="referralsList" style="font-size:13px;color:#aaa;" data-i18n="noReferralsYet">No referrals yet. Share your link to get started!</div>
+          <div id="referralsList" class="ref-list" data-i18n="noReferralsYet">No referrals yet. Share your link to get started!</div>
         </div>
       </section>
 
@@ -375,17 +420,70 @@
       <section id="tab-support" class="tab">
         <div class="card glass">
           <div class="c-title" data-i18n="supportCenter">Support Center</div>
-          <p class="muted">WhatsApp: <a href="https://wa.me/18259710501" target="_blank">Open Chat</a></p>
-          <p class="muted">Telegram: <a href="https://t.me/@qlsupport" target="_blank">@qlsupport</a></p>
+          <a class="contact-card" href="https://wa.me/18259710501" target="_blank">
+            <span class="contact-ic wa">💬</span>
+            <span class="contact-body">
+              <span class="contact-name">WhatsApp</span>
+              <span class="contact-sub" data-i18n="openChat">Open Chat</span>
+            </span>
+            <span class="contact-chev">›</span>
+          </a>
+          <a class="contact-card" href="https://t.me/@qlsupport" target="_blank">
+            <span class="contact-ic tg">✈️</span>
+            <span class="contact-body">
+              <span class="contact-name">Telegram</span>
+              <span class="contact-sub">@qlsupport</span>
+            </span>
+            <span class="contact-chev">›</span>
+          </a>
         </div>
 
-        <div class="card glass" style="margin-top:12px;">
-          <div class="c-title">🪪 <span data-i18n="verifyIdentity">Verify Identity</span></div>
-          <p class="muted" data-i18n="verifyIdentitySub">Open identity verification directly from the bot.</p>
-          <button id="openKycBtn" class="btn">🪪 <span data-i18n="startVerification">Start Verification</span></button>
+        <div class="card glass kyc-card">
+          <div class="kyc-card-head">
+            <span class="kyc-ic">🪪</span>
+            <div>
+              <div class="c-title" style="margin:0;"><span data-i18n="verifyIdentity">Verify Identity</span></div>
+              <p class="muted" style="margin:2px 0 0;" data-i18n="verifyIdentitySub">Open identity verification directly from the bot.</p>
+            </div>
+          </div>
+          <button id="openKycBtn" class="btn btn-primary">🪪 <span data-i18n="startVerification">Start Verification</span></button>
         </div>
       </section>
     </main>
+
+    <!-- Bottom Navigation (redesign) -->
+    <nav class="bottomnav glass">
+      <button class="seg-btn active bn-active" data-tab="wallet">
+        <span class="bn-ic">🏠</span><span class="bn-lbl" data-i18n="tabWallet">Home</span>
+      </button>
+      <button class="seg-btn" data-tab="trades">
+        <span class="bn-ic">📈</span><span class="bn-lbl" data-i18n="tabTrades">Trades</span>
+      </button>
+      <button class="seg-btn" data-tab="withdraw">
+        <span class="bn-ic">💸</span><span class="bn-lbl" data-i18n="tabWithdraw">Withdraw</span>
+      </button>
+      <button class="seg-btn" data-tab="invite">
+        <span class="bn-ic">🤝</span><span class="bn-lbl" data-i18n="tabInvite">Invite</span>
+      </button>
+      <button id="moreBtn" class="bn-btn" type="button">
+        <span class="bn-ic">⋯</span><span class="bn-lbl" data-i18n="tabMore">More</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- More sheet (secondary tabs). Tab items are .seg-btn so the existing
+       tab-switch handler (app.js) binds to them. They are intentionally NOT
+       .s-item to avoid the withdraw-method handler. -->
+  <div id="moreSheet" class="sheet">
+    <div class="handle"></div>
+    <div class="s-title" data-i18n="tabMore">More</div>
+    <button class="seg-btn more-item" data-tab="stats">📊 <span data-i18n="tabStats">Statistics</span></button>
+    <button class="seg-btn more-item" data-tab="transfer">🔄 <span data-i18n="tabTransfer">Transfer</span></button>
+    <button class="seg-btn more-item" data-tab="requests">🧾 <span data-i18n="tabRequests">Requests</span></button>
+    <button class="seg-btn more-item" data-tab="support">💬 <span data-i18n="tabSupport">Support</span></button>
+    <button class="more-item more-action" id="moreVerify" type="button">🪪 <span data-i18n="verifyIdentity">Verify Identity</span></button>
+    <button class="more-item more-action" id="moreSettings" type="button">⚙️ <span data-i18n="settingsTitle">Account &amp; Settings</span></button>
+    <button class="s-cancel" id="moreCancel" data-i18n="cancel">Cancel</button>
   </div>
 
   <!-- Withdraw sheet -->
@@ -405,7 +503,16 @@
     <div class="sp-title" data-i18n="settingsTitle">Account & Settings</div>
     <button id="spClose" class="i-btn small" aria-label="Close">✕</button>
   </div>
-  
+
+  <!-- VIP banner -->
+  <div class="vip-banner">
+    <div class="vip-crown">👑</div>
+    <div class="vip-text">
+      <div class="vip-title" data-i18n="vipMember">VIP Member</div>
+      <div class="vip-sub" data-i18n="vipMemberSub">Premium trading account</div>
+    </div>
+  </div>
+
   <!-- Profile Section -->
   <div class="sp-section">
     <div class="sp-label" data-i18n="profile">Profile</div>

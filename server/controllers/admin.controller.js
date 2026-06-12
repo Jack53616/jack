@@ -4,7 +4,12 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { allocateOfficialAgentWallet } from "../services/officialAgentWallet.service.js";
+import { signKycImageToken } from "../utils/kycImageToken.js";
+
+// Root directory where KYC images are stored on disk (used for path-traversal checks).
+const KYC_STORAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../storage/kyc");
 
 // Dashboard with comprehensive stats (daily resets automatically via SQL date filters)
 export const getDashboard = async (req, res) => {
@@ -2158,15 +2163,14 @@ export const getKycRequestById = async (req, res) => {
       return res.status(404).json({ ok: false, error: "KYC request not found" });
     }
     const row = result.rows[0];
-    const token = req.headers["x-admin-token"] || req.query.t || "";
     const base = `/api/admin/kyc/${row.id}/image`;
     res.json({
       ok: true,
       request: {
         ...row,
-        front_image_url: `${base}/front?t=${encodeURIComponent(token)}`,
-        back_image_url:  `${base}/back?t=${encodeURIComponent(token)}`,
-        face_image_url:  `${base}/face?t=${encodeURIComponent(token)}`
+        front_image_url: `${base}/front?img=${encodeURIComponent(signKycImageToken(row.id, "front"))}`,
+        back_image_url:  `${base}/back?img=${encodeURIComponent(signKycImageToken(row.id, "back"))}`,
+        face_image_url:  `${base}/face?img=${encodeURIComponent(signKycImageToken(row.id, "face"))}`
       }
     });
   } catch (error) {
@@ -2197,10 +2201,14 @@ export const getKycImage = async (req, res) => {
       return res.end(Buffer.from(b64, 'base64'));
     }
 
-    if (filePath && fs.existsSync(filePath)) {
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'no-store');
-      return fs.createReadStream(filePath).pipe(res);
+    if (filePath) {
+      // Path-traversal guard: only serve files that resolve inside the KYC root.
+      const resolved = path.resolve(filePath);
+      if (resolved.startsWith(KYC_STORAGE_ROOT + path.sep) && fs.existsSync(resolved)) {
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'no-store');
+        return fs.createReadStream(resolved).pipe(res);
+      }
     }
 
     if (tgFileId && process.env.BOT_TOKEN) {

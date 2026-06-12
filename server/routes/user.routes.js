@@ -1,7 +1,12 @@
 import express from "express";
 import * as userController from "../controllers/user.controller.js";
+import { requireTelegramAuth, enforceTgIdParam } from "../middleware/telegramAuth.js";
 
 const router = express.Router();
+
+// Every user route requires a verified Telegram session.
+router.use(requireTelegramAuth);
+router.param("tg_id", enforceTgIdParam);
 
 // GET /api/user/profile/:tg_id - Get user profile
 router.get("/profile/:tg_id", userController.getProfile);

@@ -1,7 +1,12 @@
 import express from "express";
 import { query } from "../config/db.js";
+import { requireTelegramAuth, enforceTgIdParam } from "../middleware/telegramAuth.js";
 
 const router = express.Router();
+
+// Analytics is per-user — require a verified Telegram session.
+router.use(requireTelegramAuth);
+router.param("tg_id", enforceTgIdParam);
 
 // GET /api/analytics/:tg_id - Get user analytics
 router.get("/:tg_id", async (req, res) => {
@@ -67,7 +72,7 @@ router.get("/:tg_id", async (req, res) => {
     res.json({ ok: true, analytics });
   } catch (error) {
     console.error('Analytics error:', error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 

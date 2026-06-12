@@ -3,9 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { securityHeaders, apiLimiter, adminLimiter } from "./config/security.js";
+import { securityHeaders, apiLimiter, adminLimiter, rewardLimiter } from "./config/security.js";
 import pool from "./config/db.js";
 import logger from "./config/logger.js";
+import { requireTelegramAuth } from "./middleware/telegramAuth.js";
 
 // Routes
 import authRoutes from "./routes/auth.routes.js";
@@ -28,6 +29,14 @@ import { startTradingEngine } from "./services/tradingEngine.js";
 
 dotenv.config();
 
+// ===== Fail fast if critical secrets are missing (no weak fallbacks) =====
+for (const required of ["JWT_SECRET", "ADMIN_TOKEN", "BOT_TOKEN"]) {
+  if (!process.env[required]) {
+    logger.error(`FATAL: required environment variable ${required} is not set`);
+    process.exit(1);
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -37,8 +46,38 @@ const PORT = process.env.PORT || 10000;
 // CRITICAL: Enable trust proxy for Render
 app.set('trust proxy', 1);
 
+// ===== Strict CORS =====
+// Allow only the app's own origin(s). Same-origin requests (the Mini App and
+// the admin panel are served from here) are unaffected. Configure extra origins
+// via ALLOWED_ORIGINS (comma-separated); defaults to WEBHOOK_URL.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.WEBHOOK_URL || "")
+  .split(",")
+  .map((s) => s.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      // No Origin header = same-origin / non-browser client → allow.
+      // Empty allowlist (e.g. local dev) → allow, to avoid breaking development.
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
+        return cb(null, true);
+      }
+      return cb(null, false);
+    },
+    credentials: true,
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Admin-Token",
+      "X-Telegram-Init-Data",
+      "X-Official-Agent-Token",
+      "X-Supervisor-Token",
+    ],
+  })
+);
+
 // Middleware
-app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(securityHeaders);
@@ -169,9 +208,9 @@ app.get("/api/session/validate", async (req, res) => {
 
 // ===== Reward System API =====
 // Check if there's an active reward for user (global or personal)
-app.get("/api/reward/check", async (req, res) => {
+app.get("/api/reward/check", rewardLimiter, requireTelegramAuth, async (req, res) => {
   try {
-    const tgId = req.query.tg_id;
+    const tgId = req.tgId;
     if (!tgId) return res.json({ ok: false, error: 'Missing tg_id' });
 
     // 1. Check personal reward first (higher priority)
@@ -197,14 +236,15 @@ app.get("/api/reward/check", async (req, res) => {
 
     res.json({ ok: true, hasReward: true, rewardId: reward.id, amount: reward.perUser, isPersonal: false });
   } catch (error) {
-    res.json({ ok: false, error: error.message });
+    res.json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 });
 
 // Claim reward (supports both global and personal rewards)
-app.post("/api/reward/claim", async (req, res) => {
+app.post("/api/reward/claim", rewardLimiter, requireTelegramAuth, async (req, res) => {
   try {
-    const { tg_id, isPersonal } = req.body;
+    const tg_id = req.tgId;
+    const { isPersonal } = req.body;
     if (!tg_id) return res.json({ ok: false, error: 'Missing tg_id' });
 
     let reward = null;
@@ -249,14 +289,14 @@ app.post("/api/reward/claim", async (req, res) => {
 
     res.json({ ok: true, amount: reward.perUser, newBalance });
   } catch (error) {
-    res.json({ ok: false, error: error.message });
+    res.json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 });
 
 // Get user statistics (Direct endpoint for frontend)
-app.get("/api/stats/:tg_id", async (req, res) => {
+app.get("/api/stats/:tg_id", requireTelegramAuth, async (req, res) => {
   try {
-    const user = await pool.query("SELECT id FROM users WHERE tg_id = $1", [req.params.tg_id]);
+    const user = await pool.query("SELECT id FROM users WHERE tg_id = $1", [req.tgId]);
     if (user.rows.length === 0) return res.json({ ok: false, error: "User not found" });
     
     const userId = user.rows[0].id;
@@ -342,7 +382,7 @@ app.get("/api/stats/:tg_id", async (req, res) => {
     
   } catch (error) {
     console.error('Stats error:', error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 });
 

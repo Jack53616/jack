@@ -1,8 +1,13 @@
 import express from "express";
 import * as authController from "../controllers/auth.controller.js";
 import { authLimiter } from "../config/security.js";
+import { requireTelegramAuth, enforceTgIdParam } from "../middleware/telegramAuth.js";
 
 const router = express.Router();
+
+// Identity comes from verified Telegram initData on all auth routes.
+router.use(requireTelegramAuth);
+router.param("tg_id", enforceTgIdParam);
 
 // POST /api/activate - Activate subscription key
 router.post("/activate", authLimiter, authController.activate);

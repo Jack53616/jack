@@ -55,6 +55,34 @@ export const withdrawLimiter = rateLimit({
   trustProxy: true,
 });
 
+// Sensitive money/account actions — tighter than the global apiLimiter.
+export const walletLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { ok: false, error: "Too many wallet requests, please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+});
+
+export const transferLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { ok: false, error: "Too many transfer requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+});
+
+export const rewardLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { ok: false, error: "Too many reward requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+});
+
 export const sanitizeInput = (input) => {
   if (typeof input !== "string") return input;
   return input

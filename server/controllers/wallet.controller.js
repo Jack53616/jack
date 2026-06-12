@@ -99,7 +99,7 @@ export const getWallet = async (req, res) => {
 
     res.json({ ok: true, wallet: result.rows[0] });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -121,7 +121,7 @@ export const getOps = async (req, res) => {
 
     res.json({ ok: true, list: result.rows });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -249,7 +249,7 @@ export const requestWithdraw = async (req, res) => {
     });
   } catch (error) {
     console.error("Withdraw error:", error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -274,7 +274,7 @@ export const saveWithdrawMethod = async (req, res) => {
 
     res.json({ ok: true, message: "Address saved" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -329,7 +329,7 @@ export const cancelWithdraw = async (req, res) => {
 
     res.json({ ok: true, message: "Withdrawal cancelled" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -352,13 +352,24 @@ export const getRequests = async (req, res) => {
     // Return requests WITHOUT fee details
     res.json({ ok: true, list: result.rows });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
 // Deposit handler - processes referral bonus when user deposits
+// SECURITY: This endpoint credits real balance, so it must NEVER be callable
+// by end users. Legitimate deposits go through the admin bot (direct DB writes).
+// We require the admin token here to close an unauthenticated free-balance hole.
 export const processDeposit = async (req, res) => {
   try {
+    // Admin token from header / Authorization only (never from body or query).
+    const authHeader = req.headers["authorization"] || "";
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const adminToken = req.headers["x-admin-token"] || bearer;
+    if (!adminToken || !process.env.ADMIN_TOKEN || adminToken !== process.env.ADMIN_TOKEN) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
     const { tg_id, amount } = req.body;
 
     if (!validateTelegramId(tg_id) || !validateAmount(amount)) {
@@ -407,15 +418,17 @@ export const processDeposit = async (req, res) => {
 
     res.json({ ok: true, message: "Deposit processed" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
 // ===== API: Get withdrawal fee preview (available to users) =====
 export const getWithdrawalFeePreview = async (req, res) => {
   try {
-    const { tg_id, amount } = req.query;
-    
+    // Identity comes from the verified Telegram session, never the query string.
+    const tg_id = req.tgId || req.query.tg_id;
+    const { amount } = req.query;
+
     if (!validateTelegramId(tg_id)) {
       return res.status(400).json({ ok: false, error: "Invalid Telegram ID" });
     }
@@ -445,7 +458,7 @@ export const getWithdrawalFeePreview = async (req, res) => {
       feeLabel: feeInfo.feeLabel
     });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -464,7 +477,7 @@ export const setUserFeeOverride = async (req, res) => {
     
     res.json({ ok: true, message: feeValue === null ? 'تم إزالة الخصم المخصص (سيتم استخدام الافتراضي)' : `تم تعيين خصم ${feeValue}% لهذا المستخدم` });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -488,7 +501,7 @@ export const setAllUsersFeeOverride = async (req, res) => {
       affected: result.rowCount
     });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -504,7 +517,7 @@ export const resetUserFeeTimer = async (req, res) => {
     
     res.json({ ok: true, message: 'تم إعادة تعيين مؤقت الخصم لهذا المستخدم' });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -578,7 +591,7 @@ export const requestTransfer = async (req, res) => {
     });
   } catch (error) {
     console.error("Transfer error:", error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -610,7 +623,7 @@ export const getUserTransfers = async (req, res) => {
 
     res.json({ ok: true, list: result.rows, user_id: userId });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -647,7 +660,7 @@ export const cancelTransfer = async (req, res) => {
 
     res.json({ ok: true, message: "تم إلغاء التحويل | Transfer cancelled" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -683,6 +696,6 @@ export const getUserFeeInfo = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };

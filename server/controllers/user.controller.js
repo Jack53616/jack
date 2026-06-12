@@ -11,7 +11,7 @@ export const getProfile = async (req, res) => {
 
     res.json({ ok: true, profile: result.rows[0] });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -42,7 +42,7 @@ export const getStats = async (req, res) => {
 
     res.json({ ok: true, stats });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -64,7 +64,7 @@ export const getMessages = async (req, res) => {
 
     res.json({ ok: true, messages: result.rows });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -76,6 +76,6 @@ export const markMessageRead = async (req, res) => {
     
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };

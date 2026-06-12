@@ -5,17 +5,32 @@ import * as adminController from "../controllers/admin.controller.js";
 import * as agentController from "../controllers/agent.controller.js";
 import * as supervisorController from "../controllers/supervisor.controller.js";
 import * as walletController from "../controllers/wallet.controller.js";
+import { verifyKycImageToken } from "../utils/kycImageToken.js";
 
 const router = express.Router();
 
-// Middleware to verify admin token
+// Middleware to verify admin token.
+// Token is accepted ONLY from the X-Admin-Token header or Authorization: Bearer.
+// It is never read from the query string or request body anymore.
 const verifyAdmin = (req, res, next) => {
-  const token = req.headers["x-admin-token"] || req.body.admin_token || req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    logger.warn(`[ADMIN AUTH FAIL] IP: ${req.ip} | Path: ${req.path}`);
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  const authHeader = req.headers["authorization"] || "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = req.headers["x-admin-token"] || bearer;
+
+  if (token && process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
+    return next();
   }
-  next();
+
+  // Narrow exception: KYC images are loaded by <img> tags which cannot send
+  // headers. They use a short-lived signed token (?img=...) scoped to that
+  // image — NOT the admin token.
+  const imgMatch = req.path.match(/^\/kyc\/(\d+)\/image\/(front|back|face)$/);
+  if (req.method === "GET" && imgMatch && verifyKycImageToken(req.query.img, imgMatch[1], imgMatch[2])) {
+    return next();
+  }
+
+  logger.warn(`[ADMIN AUTH FAIL] IP: ${req.ip} | Path: ${req.path}`);
+  return res.status(401).json({ ok: false, error: "Unauthorized" });
 };
 
 router.use(verifyAdmin);

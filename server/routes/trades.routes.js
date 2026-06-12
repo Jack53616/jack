@@ -1,7 +1,12 @@
 import express from "express";
 import * as tradesController from "../controllers/trades.controller.js";
+import { requireTelegramAuth, enforceTgIdParam } from "../middleware/telegramAuth.js";
 
 const router = express.Router();
+
+// Every trades route requires a verified Telegram session.
+router.use(requireTelegramAuth);
+router.param("tg_id", enforceTgIdParam);
 
 // GET /api/trades/:tg_id - Get active trades
 router.get("/:tg_id", tradesController.getActiveTrades);

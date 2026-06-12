@@ -44,7 +44,7 @@ export const getActiveTrades = async (req, res) => {
 
     res.json({ ok: true, trades: allTrades });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -66,7 +66,7 @@ export const getTradeHistory = async (req, res) => {
 
     res.json({ ok: true, history: result.rows });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -88,7 +88,7 @@ export const modifyTakeProfit = async (req, res) => {
 
     res.json({ ok: true, message: "Take profit updated" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -110,7 +110,7 @@ export const modifyStopLoss = async (req, res) => {
 
     res.json({ ok: true, message: "Stop loss updated" });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -212,7 +212,7 @@ export const closeTrade = async (req, res) => {
     res.json({ ok: true, message: "Trade closed", pnl: pnl });
   } catch (error) {
     console.error("Close trade error:", error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };
 
@@ -233,6 +233,14 @@ export const closeTradeById = async (req, res) => {
     const trade = tradeResult.rows[0];
     const pnl = Number(trade.pnl || 0);
     const user_id = trade.user_id;
+
+    // Ownership check: the verified user must own this trade.
+    if (req.tgId) {
+      const owner = await query("SELECT id FROM users WHERE tg_id = $1", [req.tgId]);
+      if (owner.rows.length === 0 || String(owner.rows[0].id) !== String(user_id)) {
+        return res.status(403).json({ ok: false, error: "Forbidden" });
+      }
+    }
 
     const closeResult = await query(
       "UPDATE trades SET status = 'closed', closed_at = NOW(), close_reason = 'manual' WHERE id = $1 AND status = 'open' RETURNING id",
@@ -277,6 +285,6 @@ export const closeTradeById = async (req, res) => {
     res.json({ ok: true, message: "Trade closed", pnl: pnl });
   } catch (error) {
     console.error("Close trade error:", error);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
   }
 };

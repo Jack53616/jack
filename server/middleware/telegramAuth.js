@@ -84,6 +84,12 @@ function extractInitData(req) {
   if (headerVal) return headerVal;
   const auth = req.headers["authorization"] || "";
   if (auth.toLowerCase().startsWith("tma ")) return auth.slice(4);
+  // Last resort: initData sent in the request body (the activation flow posts it
+  // there). It is still cryptographically verified below, so reading it from the
+  // body is exactly as safe as the header — the tg_id is never trusted directly.
+  if (req.body && typeof req.body === "object" && typeof req.body.initData === "string" && req.body.initData) {
+    return req.body.initData;
+  }
   return null;
 }
 

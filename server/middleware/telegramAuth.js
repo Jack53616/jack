@@ -125,7 +125,8 @@ export function requireTelegramAuth(req, res, next) {
   }
 
   if (ENFORCE) {
-    logger.warn(`[TG AUTH FAIL] IP: ${req.ip} | Path: ${req.originalUrl}`);
+    const reason = !initData ? "no initData sent" : "initData failed verification";
+    logger.warn(`[TG AUTH FAIL] ${reason} | IP: ${req.ip} | Path: ${req.originalUrl}`);
     return deny(res);
   }
 

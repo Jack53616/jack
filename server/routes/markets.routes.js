@@ -17,8 +17,9 @@ async function fetchCryptoPrices() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
+    // Use Binance's public market-data domain (not geo-blocked on US hosts like Render)
     const response = await fetch(
-      'https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]',
+      'https://data-api.binance.vision/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]',
       {
         signal: controller.signal,
         headers: {

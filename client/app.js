@@ -676,10 +676,10 @@ const i18n = {
 
 // Redesign i18n additions (merged into the dictionary above)
 const _redesignI18n = {
-  en: { tabMarkets:"Markets", tabWalletNav:"Wallet", welcomeBack:"Welcome back", mkAll:"All", mkCrypto:"Crypto", mkCommodities:"Commodities", mkFavorites:"Favorites" },
-  ar: { tabMarkets:"الأسواق", tabWalletNav:"المحفظة", welcomeBack:"مرحباً بعودتك", mkAll:"الكل", mkCrypto:"كريبتو", mkCommodities:"سلع", mkFavorites:"المفضّلة" },
-  tr: { tabMarkets:"Piyasalar", tabWalletNav:"Cüzdan", welcomeBack:"Tekrar hoş geldin", mkAll:"Tümü", mkCrypto:"Kripto", mkCommodities:"Emtia", mkFavorites:"Favoriler" },
-  de: { tabMarkets:"Märkte", tabWalletNav:"Wallet", welcomeBack:"Willkommen zurück", mkAll:"Alle", mkCrypto:"Krypto", mkCommodities:"Rohstoffe", mkFavorites:"Favoriten" }
+  en: { tabMarkets:"Markets", tabWalletNav:"Wallet", welcomeBack:"Welcome back", mkAll:"All", mkCrypto:"Crypto", mkCommodities:"Commodities", mkFavorites:"Favorites", language:"Language" },
+  ar: { tabMarkets:"الأسواق", tabWalletNav:"المحفظة", welcomeBack:"مرحباً بعودتك", mkAll:"الكل", mkCrypto:"كريبتو", mkCommodities:"سلع", mkFavorites:"المفضّلة", language:"اللغة" },
+  tr: { tabMarkets:"Piyasalar", tabWalletNav:"Cüzdan", welcomeBack:"Tekrar hoş geldin", mkAll:"Tümü", mkCrypto:"Kripto", mkCommodities:"Emtia", mkFavorites:"Favoriler", language:"Dil" },
+  de: { tabMarkets:"Märkte", tabWalletNav:"Wallet", welcomeBack:"Willkommen zurück", mkAll:"Alle", mkCrypto:"Krypto", mkCommodities:"Rohstoffe", mkFavorites:"Favoriten", language:"Sprache" }
 };
 try { Object.keys(_redesignI18n).forEach(l => { if (i18n[l]) Object.assign(i18n[l], _redesignI18n[l]); }); } catch(e) {}
 
@@ -1058,6 +1058,7 @@ settingsBackdrop?.addEventListener("click", closeSettings);
   document.getElementById('moreCancel')?.addEventListener('click', closeMore);
   document.getElementById('moreSettings')?.addEventListener('click', ()=>{ closeMore(); openSettings(); });
   document.getElementById('moreVerify')?.addEventListener('click', ()=>{ closeMore(); openKycFromMiniApp(); });
+  document.getElementById('moreLang')?.addEventListener('click', ()=>{ closeMore(); document.getElementById('btnLang')?.click(); });
 
   function syncBottomNav(tab){
     document.querySelectorAll('.bottomnav .seg-btn, .bottomnav .bn-btn').forEach(b=>b.classList.remove('bn-active'));

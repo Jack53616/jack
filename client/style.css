@@ -284,12 +284,16 @@ body:not(.is-gated) #gate{
 .toast{margin-top:10px; min-height:20px; color:#ff8899; font-size:13px}
 
 /* ===== MAIN APP ===== */
-.safe{ padding:16px; padding-top:84px; padding-bottom:calc(var(--bottom-nav-h) + 28px); max-width:var(--app-max); margin:0 auto;}
-.top{
+.safe{ padding:16px; padding-top:calc(env(safe-area-inset-top) + 14px); padding-bottom:calc(var(--bottom-nav-h) + 28px); max-width:var(--app-max); margin:0 auto;}
+/* The global brand bar is removed to match the mockup (each screen has its own
+   title). The buttons inside remain in the DOM — reachable from the More sheet —
+   so their JS handlers keep working. */
+.top{ display:none; }
+.top--legacy{
   position:fixed; top:0; left:0; right:0; padding:12px 16px; padding-top:calc(env(safe-area-inset-top) + 12px); padding-bottom:16px;
   background: linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(10,10,10,0.95) 70%, rgba(10,10,10,0.85) 100%);
-  border-bottom:1px solid rgba(255,215,0,0.1); 
-  backdrop-filter: blur(16px); 
+  border-bottom:1px solid rgba(255,215,0,0.1);
+  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   z-index:100;
   box-shadow: 0 4px 30px rgba(0,0,0,0.4);
@@ -556,6 +560,12 @@ body:not(.is-gated) #gate{
 .mk-star{ background:none; border:none; font-size:16px; cursor:pointer; flex:0 0 auto; opacity:.45; transition:opacity var(--dur-1) var(--ease); }
 .mk-star.on{ opacity:1; }
 .mk-empty{ text-align:center; padding:30px; color:var(--txt-3); font-size:13px; }
+
+/* ===== SVG line icons (bottom nav + quick actions) ===== */
+.bn-ic{ display:flex; align-items:center; justify-content:center; }
+.bn-ic svg{ width:23px; height:23px; display:block; }
+.qa-ic{ display:flex; align-items:center; justify-content:center; color:var(--gold-500); }
+.qa-ic svg{ width:24px; height:24px; display:block; }
 
 /* ===== Withdraw / Transfer forms (redesign Step 5) ===== */
 .form-field{ margin-bottom:14px; }

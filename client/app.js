@@ -674,6 +674,15 @@ const i18n = {
   }
 };
 
+// Redesign i18n additions (merged into the dictionary above)
+const _redesignI18n = {
+  en: { tabMarkets:"Markets", tabWalletNav:"Wallet", welcomeBack:"Welcome back", mkAll:"All", mkCrypto:"Crypto", mkCommodities:"Commodities", mkFavorites:"Favorites" },
+  ar: { tabMarkets:"الأسواق", tabWalletNav:"المحفظة", welcomeBack:"مرحباً بعودتك", mkAll:"الكل", mkCrypto:"كريبتو", mkCommodities:"سلع", mkFavorites:"المفضّلة" },
+  tr: { tabMarkets:"Piyasalar", tabWalletNav:"Cüzdan", welcomeBack:"Tekrar hoş geldin", mkAll:"Tümü", mkCrypto:"Kripto", mkCommodities:"Emtia", mkFavorites:"Favoriler" },
+  de: { tabMarkets:"Märkte", tabWalletNav:"Wallet", welcomeBack:"Willkommen zurück", mkAll:"Alle", mkCrypto:"Krypto", mkCommodities:"Rohstoffe", mkFavorites:"Favoriten" }
+};
+try { Object.keys(_redesignI18n).forEach(l => { if (i18n[l]) Object.assign(i18n[l], _redesignI18n[l]); }); } catch(e) {}
+
 function t(key){
   const lang = state.lang;
   return (i18n[lang] && i18n[lang][key]) || (i18n.en[key]||key);
@@ -943,6 +952,9 @@ $$(".seg-btn").forEach(btn=>{
     if(tab === "invite"){
       loadReferralInfo();
     }
+    if(tab === "markets"){
+      loadMarkets();
+    }
   });
 });
 
@@ -1038,7 +1050,7 @@ settingsBackdrop?.addEventListener("click", closeSettings);
 (function bottomNavSetup(){
   const moreBtn = document.getElementById('moreBtn');
   const moreSheet = document.getElementById('moreSheet');
-  const moreTabs = ['stats','transfer','requests','support'];
+  const moreTabs = ['stats','transfer','invite','requests','support'];
   const openMore = ()=> moreSheet?.classList.add('show');
   const closeMore = ()=> moreSheet?.classList.remove('show');
 
@@ -1458,6 +1470,12 @@ function hydrateUser(user){
   if(spTgId) spTgId.textContent = tgId || "—";
   if(spName) spName.textContent = name || "—";
   if(spEmail) spEmail.textContent = email || "—";
+
+  // Home greeting header (matches mockup)
+  const homeName = $("#homeName");
+  if (homeName) homeName.textContent = name || "User";
+  const homeAvatar = $("#homeAvatar");
+  if (homeAvatar && name) homeAvatar.textContent = name.trim().charAt(0).toUpperCase() || "👤";
 
   // ===== Rank Display (uses display_rank from server, translated to user's language) =====
   const rankTranslations = {
@@ -2157,6 +2175,96 @@ async function loadTrades(forceRedraw = false){
 $("#saveSLTP").onclick = ()=>{
   notify(state.lang === 'ar' ? "✅ تم حفظ وقف الخسارة/جني الربح" : "✅ SL/TP saved");
 };
+
+// ===== Markets (live prices from /api/markets) =====
+const MK_META = {
+  BTCUSDT: { sym:"BTC", name:"Bitcoin",  ic:"🟠", type:"crypto",      pair:"BTC/USDT" },
+  ETHUSDT: { sym:"ETH", name:"Ethereum", ic:"🔷", type:"crypto",      pair:"ETH/USDT" },
+  XAUUSD:  { sym:"XAU", name:"Gold",     ic:"🥇", type:"commodities", pair:"XAU/USD" },
+  XAGUSD:  { sym:"XAG", name:"Silver",   ic:"🥈", type:"commodities", pair:"XAG/USD" }
+};
+let _mkBaseline = {};   // first-seen price per symbol (for session % change)
+let _mkData = {};       // latest prices
+let _mkFilter = "all";
+let _mkTimer = null;
+
+function mkFavs(){ try { return JSON.parse(localStorage.getItem("mkFavs") || "[]"); } catch { return []; } }
+function mkToggleFav(key){
+  const f = mkFavs(); const i = f.indexOf(key);
+  if (i >= 0) f.splice(i, 1); else f.push(key);
+  localStorage.setItem("mkFavs", JSON.stringify(f));
+  renderMarkets();
+}
+
+function renderMarkets(){
+  const box = $("#marketsList"); if (!box) return;
+  const q = ($("#mkSearch")?.value || "").trim().toLowerCase();
+  const favs = mkFavs();
+  const rows = Object.keys(MK_META).filter(k => _mkData[k] != null).filter(k => {
+    const m = MK_META[k];
+    if (_mkFilter === "crypto" && m.type !== "crypto") return false;
+    if (_mkFilter === "commodities" && m.type !== "commodities") return false;
+    if (_mkFilter === "fav" && !favs.includes(k)) return false;
+    if (q && !(m.sym.toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || m.pair.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if (rows.length === 0){
+    box.innerHTML = `<div class="mk-empty">${state.lang === 'ar' ? 'لا توجد نتائج' : 'No results'}</div>`;
+    return;
+  }
+  box.innerHTML = rows.map(k => {
+    const m = MK_META[k];
+    const price = Number(_mkData[k]);
+    const base = _mkBaseline[k] || price;
+    const chg = base ? ((price - base) / base) * 100 : 0;
+    const up = chg >= 0;
+    const isFav = favs.includes(k);
+    const decimals = price >= 100 ? 2 : 4;
+    return `<div class="mk-row">
+      <span class="mk-ic">${m.ic}</span>
+      <div class="mk-info">
+        <div class="mk-sym">${m.pair}</div>
+        <div class="mk-name">${m.name}</div>
+      </div>
+      <div class="mk-right">
+        <div class="mk-price">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:decimals})}</div>
+        <div class="mk-chg ${up ? 'up' : 'down'}">${up ? '+' : ''}${chg.toFixed(2)}%</div>
+      </div>
+      <button class="mk-star ${isFav ? 'on' : ''}" data-mk-key="${k}" type="button">${isFav ? '★' : '☆'}</button>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".mk-star").forEach(b => b.addEventListener("click", () => mkToggleFav(b.dataset.mkKey)));
+}
+
+async function loadMarkets(){
+  try {
+    const r = await fetch("/api/markets").then(r => r.json());
+    if (r.ok && r.data){
+      _mkData = r.data;
+      Object.keys(r.data).forEach(k => { if (_mkBaseline[k] == null && r.data[k] != null) _mkBaseline[k] = Number(r.data[k]); });
+      renderMarkets();
+    }
+  } catch(e){ /* ignore */ }
+  if (_mkTimer) clearInterval(_mkTimer);
+  _mkTimer = setInterval(async () => {
+    if (!document.querySelector('#tab-markets')?.classList.contains('show')){ clearInterval(_mkTimer); _mkTimer = null; return; }
+    try {
+      const r = await fetch("/api/markets").then(r => r.json());
+      if (r.ok && r.data){ _mkData = r.data; renderMarkets(); }
+    } catch(e){}
+  }, 5000);
+}
+
+// Markets sub-tabs + search wiring (elements are static in the DOM)
+document.querySelectorAll(".mk-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mk-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    _mkFilter = btn.dataset.mk;
+    renderMarkets();
+  });
+});
+$("#mkSearch")?.addEventListener("input", renderMarkets);
 
 function notify(msg){
   const el = document.createElement("div");

@@ -139,6 +139,17 @@
     <main>
       <!-- Wallet Tab -->
       <section id="tab-wallet" class="tab show">
+        <!-- Greeting header (matches mockup) -->
+        <div class="home-greet">
+          <div class="hg-left">
+            <div class="hg-avatar" id="homeAvatar">👤</div>
+            <div class="hg-text">
+              <div class="hg-hi"><span data-i18n="welcomeBack">Welcome back</span>,</div>
+              <div class="hg-name" id="homeName">—</div>
+            </div>
+          </div>
+          <button class="hg-bell" id="homeBell" type="button" aria-label="Notifications">🔔<span class="hg-bell-dot"></span></button>
+        </div>
         <!-- Premium balance card -->
         <div class="balance glass neon">
           <div class="bal-top">
@@ -449,21 +460,40 @@
           <button id="openKycBtn" class="btn btn-primary">🪪 <span data-i18n="startVerification">Start Verification</span></button>
         </div>
       </section>
+
+      <!-- Markets (live, from /api/markets) -->
+      <section id="tab-markets" class="tab">
+        <div class="mk-head">
+          <div class="c-title" style="margin:0;">📊 <span data-i18n="tabMarkets">Markets</span></div>
+          <span class="mk-live"><span class="mk-dot"></span> <span data-i18n="live">Live</span></span>
+        </div>
+        <div class="mk-tabs">
+          <button class="mk-tab active" data-mk="all" data-i18n="mkAll">All</button>
+          <button class="mk-tab" data-mk="crypto" data-i18n="mkCrypto">Crypto</button>
+          <button class="mk-tab" data-mk="commodities" data-i18n="mkCommodities">Commodities</button>
+          <button class="mk-tab" data-mk="fav" data-i18n="mkFavorites">Favorites</button>
+        </div>
+        <div class="mk-search">
+          <span class="mk-search-ic">🔍</span>
+          <input id="mkSearch" class="input" placeholder="Search market" autocomplete="off"/>
+        </div>
+        <div id="marketsList" class="mk-list"></div>
+      </section>
     </main>
 
-    <!-- Bottom Navigation (redesign) -->
+    <!-- Bottom Navigation (matches mockup: Home / Markets / Trades / Wallet / More) -->
     <nav class="bottomnav glass">
       <button class="seg-btn active bn-active" data-tab="wallet">
         <span class="bn-ic">🏠</span><span class="bn-lbl" data-i18n="tabWallet">Home</span>
+      </button>
+      <button class="seg-btn" data-tab="markets">
+        <span class="bn-ic">📊</span><span class="bn-lbl" data-i18n="tabMarkets">Markets</span>
       </button>
       <button class="seg-btn" data-tab="trades">
         <span class="bn-ic">📈</span><span class="bn-lbl" data-i18n="tabTrades">Trades</span>
       </button>
       <button class="seg-btn" data-tab="withdraw">
-        <span class="bn-ic">💸</span><span class="bn-lbl" data-i18n="tabWithdraw">Withdraw</span>
-      </button>
-      <button class="seg-btn" data-tab="invite">
-        <span class="bn-ic">🤝</span><span class="bn-lbl" data-i18n="tabInvite">Invite</span>
+        <span class="bn-ic">💼</span><span class="bn-lbl" data-i18n="tabWalletNav">Wallet</span>
       </button>
       <button id="moreBtn" class="bn-btn" type="button">
         <span class="bn-ic">⋯</span><span class="bn-lbl" data-i18n="tabMore">More</span>
@@ -479,6 +509,7 @@
     <div class="s-title" data-i18n="tabMore">More</div>
     <button class="seg-btn more-item" data-tab="stats">📊 <span data-i18n="tabStats">Statistics</span></button>
     <button class="seg-btn more-item" data-tab="transfer">🔄 <span data-i18n="tabTransfer">Transfer</span></button>
+    <button class="seg-btn more-item" data-tab="invite">🤝 <span data-i18n="tabInvite">Invite</span></button>
     <button class="seg-btn more-item" data-tab="requests">🧾 <span data-i18n="tabRequests">Requests</span></button>
     <button class="seg-btn more-item" data-tab="support">💬 <span data-i18n="tabSupport">Support</span></button>
     <button class="more-item more-action" id="moreVerify" type="button">🪪 <span data-i18n="verifyIdentity">Verify Identity</span></button>

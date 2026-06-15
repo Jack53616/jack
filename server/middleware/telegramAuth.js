@@ -44,28 +44,35 @@ export function verifyTelegramInitData(initData, botToken = BOT_TOKEN) {
   const hash = params.get("hash");
   if (!hash) return null;
 
-  // The data-check-string excludes `hash` (and `signature` used by the newer
-  // third-party Ed25519 flow, which is not part of the HMAC check).
+  // Telegram's HMAC is computed over all fields except `hash`.
   params.delete("hash");
-  params.delete("signature");
-
-  const dataCheckString = Array.from(params.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
 
   const secret = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const computed = crypto.createHmac("sha256", secret).update(dataCheckString).digest("hex");
+  // Code-point sort, matching Telegram's reference implementation (NOT localeCompare).
+  const codepointSort = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const computeHash = (entries) => {
+    const dcs = entries.slice().sort(codepointSort).map(([k, v]) => `${k}=${v}`).join("\n");
+    return crypto.createHmac("sha256", secret).update(dcs).digest("hex");
+  };
+  const matches = (computed) => {
+    try {
+      const a = Buffer.from(computed, "hex");
+      const b = Buffer.from(hash, "hex");
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  };
 
-  // Constant-time comparison
-  let a, b;
-  try {
-    a = Buffer.from(computed, "hex");
-    b = Buffer.from(hash, "hex");
-  } catch {
-    return null;
+  const entries = Array.from(params.entries());
+  // The newer `signature` field's inclusion in the HMAC check string has varied
+  // across Telegram clients/docs. Accept either interpretation — both still
+  // require a valid bot-token HMAC, so this does not weaken verification.
+  let ok = matches(computeHash(entries));
+  if (!ok && params.has("signature")) {
+    ok = matches(computeHash(entries.filter(([k]) => k !== "signature")));
   }
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (!ok) return null;
 
   let user = null;
   try {

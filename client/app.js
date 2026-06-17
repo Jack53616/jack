@@ -986,7 +986,7 @@ function openKycFromMiniApp() {
 
 $("#openKycBtn")?.addEventListener("click", openKycFromMiniApp);
 
-$("#btnLang").addEventListener("click", ()=>{
+function openLangSheet(){
   const langSheet = document.createElement("div");
   langSheet.className = "sheet show";
   langSheet.innerHTML = `
@@ -1015,7 +1015,7 @@ $("#btnLang").addEventListener("click", ()=>{
     langSheet.classList.remove("show");
     setTimeout(()=> langSheet.remove(), 300);
   });
-});
+}
 
 const settingsPanel = $("#settingsPanel");
 const settingsBackdrop = $("#settingsBackdrop");
@@ -1058,7 +1058,7 @@ settingsBackdrop?.addEventListener("click", closeSettings);
   document.getElementById('moreCancel')?.addEventListener('click', closeMore);
   document.getElementById('moreSettings')?.addEventListener('click', ()=>{ closeMore(); openSettings(); });
   document.getElementById('moreVerify')?.addEventListener('click', ()=>{ closeMore(); openKycFromMiniApp(); });
-  document.getElementById('moreLang')?.addEventListener('click', ()=>{ closeMore(); document.getElementById('btnLang')?.click(); });
+  document.getElementById('moreLang')?.addEventListener('click', ()=>{ closeMore(); openLangSheet(); });
 
   function syncBottomNav(tab){
     document.querySelectorAll('.bottomnav .seg-btn, .bottomnav .bn-btn').forEach(b=>b.classList.remove('bn-active'));

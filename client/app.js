@@ -255,6 +255,8 @@ const i18n = {
     allTime: "All Time",
     totalTrades: "Total Trades",
     feesNet: "Fees & Net Profit",
+    preferences: "Preferences",
+    tradeSounds: "Trade sounds",
     grossProfit: "Profit (before fees)",
     companyFee: "Company fee",
     turkeyFee: "Turkey fee",
@@ -377,6 +379,8 @@ const i18n = {
     allTime: "كل الوقت",
     totalTrades: "إجمالي الصفقات",
     feesNet: "الرسوم والصافي",
+    preferences: "التفضيلات",
+    tradeSounds: "أصوات الصفقات",
     grossProfit: "الربح (قبل الرسوم)",
     companyFee: "رسوم الشركة",
     turkeyFee: "رسوم تركيا",
@@ -499,6 +503,8 @@ const i18n = {
     allTime: "Tüm Zamanlar",
     totalTrades: "Toplam İşlem",
     feesNet: "Ücretler ve Net Kâr",
+    preferences: "Tercihler",
+    tradeSounds: "İşlem sesleri",
     grossProfit: "Kâr (ücretlerden önce)",
     companyFee: "Şirket ücreti",
     turkeyFee: "Türkiye ücreti",
@@ -621,6 +627,8 @@ const i18n = {
     allTime: "Gesamtzeit",
     totalTrades: "Gesamt Trades",
     feesNet: "Gebühren & Netto",
+    preferences: "Einstellungen",
+    tradeSounds: "Trade-Töne",
     grossProfit: "Gewinn (vor Gebühren)",
     companyFee: "Firmengebühr",
     turkeyFee: "Türkei-Gebühr",
@@ -2033,10 +2041,24 @@ async function loadTrades(forceRedraw = false){
       box.innerHTML = `<div class="tc-skeleton"></div><div class="tc-skeleton"></div>`;
     }
     const r = await fetch(`/api/trades/${tg}`).then(r=>r.json());
-    
+
+    // Detect auto-closed trades (disappeared since last poll) → play win/loss sound.
+    // Uses the last-polled pnl of each open trade for the win/loss sign.
+    try {
+      const nowPnl = {};
+      if (r.ok && Array.isArray(r.trades)) r.trades.forEach(t => { nowPnl[`${t.trade_type}_${t.id}`] = Number(t.pnl || 0); });
+      const prevPnl = state._openPnl || {};
+      if (Object.keys(prevPnl).length) {
+        let closedSum = null;
+        for (const k in prevPnl) if (!(k in nowPnl)) closedSum = (closedSum || 0) + prevPnl[k];
+        if (closedSum !== null) playTradeSound(closedSum); // debounced; suppressed if a manual close just played
+      }
+      state._openPnl = nowPnl;
+    } catch (e) { /* sound detection must never break trades */ }
+
     // Calculate total PnL from all open trades
     let totalPnl = 0;
-    
+
     if(r.ok && r.trades && r.trades.length > 0){
       // Use unique keys (type_id) to distinguish between different trade types with same id
       const currentIds = r.trades.map(t => `${t.trade_type}_${t.id}`);
@@ -2169,6 +2191,7 @@ async function loadTrades(forceRedraw = false){
                 if(r.ok){
                   const closedMsg = state.lang === 'ar' ? `✅ تم إغلاق الصفقة: ${r.pnl >= 0 ? '+' : ''}$${Number(r.pnl).toFixed(2)}` : `✅ Trade closed: ${r.pnl >= 0 ? '+' : ''}$${Number(r.pnl).toFixed(2)}`;
                   notify(closedMsg);
+                  playTradeSound(r.pnl);
                   await refreshUser();
                   await loadTrades(true);
                   await refreshOps();
@@ -2376,6 +2399,55 @@ function notify(msg){
   setTimeout(()=>{ el.remove();}, 6000);
   showToast(msg);
 }
+
+// ===== Trade win/loss sounds (Web Audio — no asset files) =====
+const TradeSound = (() => {
+  let ctx = null, lastPlay = 0;
+  const enabled = () => localStorage.getItem('tradeSounds') !== 'off';
+  function ensureCtx(){
+    try {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+    } catch { return null; }
+    return ctx;
+  }
+  // Unlock audio on first user gesture (browser autoplay policy)
+  const unlock = () => { ensureCtx(); document.removeEventListener('pointerdown', unlock); document.removeEventListener('keydown', unlock); };
+  document.addEventListener('pointerdown', unlock);
+  document.addEventListener('keydown', unlock);
+
+  function tone(seq, type, vol){
+    const c = ensureCtx(); if (!c) return;
+    for (const [f, t, d] of seq){
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.type = type; osc.frequency.value = f;
+      const s = c.currentTime + t;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.linearRampToValueAtTime(vol, s + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + d);
+      osc.connect(g); g.connect(c.destination);
+      osc.start(s); osc.stop(s + d + 0.03);
+    }
+  }
+  function play(pnl){
+    if (!enabled()) return;
+    const now = Date.now();
+    if (now - lastPlay < 1500) return;     // don't repeat too much
+    lastPlay = now;
+    if (Number(pnl) >= 0) tone([[660,0,0.16],[880,0.11,0.20],[1175,0.22,0.28]], 'sine', 0.09);     // pleasant rising chime
+    else tone([[400,0,0.22],[300,0.13,0.30]], 'triangle', 0.08);                                    // soft descending tone
+  }
+  return { play, enabled };
+})();
+function playTradeSound(pnl){ try { TradeSound.play(pnl); } catch(e){} }
+
+// Settings toggle for trade sounds
+(function soundToggleSetup(){
+  const t = document.getElementById('soundToggle');
+  if (!t) return;
+  t.checked = localStorage.getItem('tradeSounds') !== 'off';
+  t.addEventListener('change', ()=> localStorage.setItem('tradeSounds', t.checked ? 'on' : 'off'));
+})();
 
 // Floating toast — visible on any tab (redesign Step 7)
 function showToast(msg){

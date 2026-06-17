@@ -254,6 +254,16 @@ const i18n = {
     thisMonth: "This Month",
     allTime: "All Time",
     totalTrades: "Total Trades",
+    feesNet: "Fees & Net Profit",
+    grossProfit: "Profit (before fees)",
+    companyFee: "Company fee",
+    turkeyFee: "Turkey fee",
+    totalFees: "Total fees",
+    netProfit: "Net profit received",
+    tradesOverview: "Trades",
+    winningTrades: "Winning",
+    losingTrades: "Losing",
+    closedTrades: "Closed",
     tradeHistory: "Trade History",
     stats: "Stats",
     tabTrades: "Trades",
@@ -366,6 +376,16 @@ const i18n = {
     thisMonth: "هذا الشهر",
     allTime: "كل الوقت",
     totalTrades: "إجمالي الصفقات",
+    feesNet: "الرسوم والصافي",
+    grossProfit: "الربح (قبل الرسوم)",
+    companyFee: "رسوم الشركة",
+    turkeyFee: "رسوم تركيا",
+    totalFees: "إجمالي الرسوم",
+    netProfit: "الصافي المستلَم",
+    tradesOverview: "الصفقات",
+    winningTrades: "رابحة",
+    losingTrades: "خاسرة",
+    closedTrades: "مغلقة",
     tradeHistory: "سجل الصفقات",
     stats: "إحصائيات",
     tabTrades: "صفقاتي",
@@ -478,6 +498,16 @@ const i18n = {
     thisMonth: "Bu Ay",
     allTime: "Tüm Zamanlar",
     totalTrades: "Toplam İşlem",
+    feesNet: "Ücretler ve Net Kâr",
+    grossProfit: "Kâr (ücretlerden önce)",
+    companyFee: "Şirket ücreti",
+    turkeyFee: "Türkiye ücreti",
+    totalFees: "Toplam ücret",
+    netProfit: "Alınan net kâr",
+    tradesOverview: "İşlemler",
+    winningTrades: "Kazanan",
+    losingTrades: "Kaybeden",
+    closedTrades: "Kapalı",
     tradeHistory: "İşlem Geçmişi",
     stats: "İstatistik",
     tabTrades: "İşlemlerim",
@@ -590,6 +620,16 @@ const i18n = {
     thisMonth: "Diesen Monat",
     allTime: "Gesamtzeit",
     totalTrades: "Gesamt Trades",
+    feesNet: "Gebühren & Netto",
+    grossProfit: "Gewinn (vor Gebühren)",
+    companyFee: "Firmengebühr",
+    turkeyFee: "Türkei-Gebühr",
+    totalFees: "Gesamtgebühren",
+    netProfit: "Erhaltener Nettogewinn",
+    tradesOverview: "Trades",
+    winningTrades: "Gewinnend",
+    losingTrades: "Verlierend",
+    closedTrades: "Geschlossen",
     tradeHistory: "Handelsverlauf",
     stats: "Statistik",
     tabTrades: "Meine Trades",
@@ -1796,6 +1836,24 @@ async function loadStats(){
       setVal("#statMonth", r.monthly.net);
       setVal("#statAll", r.allTime.net);
       setVal("#statCount", r.allTime.count, false);
+
+      // Fees & Net Profit (all-time)
+      const f = r.fees || { gross:0, company:0, turkey:0, total:0, net:0 };
+      const abs2 = (n)=> "$" + (Math.abs(Number(n)||0)).toFixed(2);
+      const setTxt = (id, txt)=>{ const el=$(id); if(el) el.textContent = txt; };
+      setTxt("#stFeeGross", "$" + (Number(f.gross)||0).toFixed(2));
+      setTxt("#stFeeCompany", "-" + abs2(f.company));
+      setTxt("#stFeeTurkey", "-" + abs2(f.turkey));
+      setTxt("#stFeeTotal", "-" + abs2(f.total));
+      setTxt("#stFeeNet", "$" + (Number(f.net)||0).toFixed(2));
+
+      // Trade counts
+      const c = r.counts || { total:0, winning:0, losing:0, open:0, closed:0 };
+      setTxt("#stCntTotal", String(c.total));
+      setTxt("#stCntWin", String(c.winning));
+      setTxt("#stCntLoss", String(c.losing));
+      setTxt("#stCntOpen", String(c.open));
+      setTxt("#stCntClosed", String(c.closed));
       
       // Update Home page Day/Month cards with REAL data
       const pnlDayEl = $("#pnlDay");

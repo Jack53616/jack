@@ -356,9 +356,39 @@ app.get("/api/stats/:tg_id", requireTelegramAuth, async (req, res) => {
     const dailyNet = Number(dailyStats.rows[0].net_pnl);
     const monthlyNet = Number(monthlyStats.rows[0].net_pnl);
     const allTimeNet = Number(allTimeStats.rows[0].net_pnl) + manualWins - manualLosses;
-    
+
+    // Fee breakdown (all-time) from fee_transfers — tolerate missing table/migration.
+    let fees = { gross: 0, company: 0, turkey: 0, total: 0, net: 0 };
+    try {
+      const fa = await pool.query(
+        `SELECT COALESCE(SUM(gross_profit),0) gross, COALESCE(SUM(company_fee),0) company,
+                COALESCE(SUM(turkey_fee),0) turkey, COALESCE(SUM(total_fee),0) total,
+                COALESCE(SUM(net_profit),0) net
+         FROM fee_transfers WHERE user_id = $1`, [userId]);
+      fees = {
+        gross: Number(fa.rows[0].gross), company: Number(fa.rows[0].company),
+        turkey: Number(fa.rows[0].turkey), total: Number(fa.rows[0].total), net: Number(fa.rows[0].net),
+      };
+    } catch (e) { /* fee_transfers not migrated yet → zeros */ }
+
+    // Trade counts (winning / losing / closed / open / total)
+    let counts = { winning: 0, losing: 0, closed: 0, open: 0, total: 0 };
+    try {
+      const c = await pool.query(
+        `SELECT COUNT(*) closed, COUNT(*) FILTER (WHERE pnl > 0) wins, COUNT(*) FILTER (WHERE pnl < 0) losses
+         FROM trades_history WHERE user_id = $1`, [userId]);
+      const oc = await pool.query(
+        `SELECT (SELECT COUNT(*) FROM trades WHERE user_id=$1 AND status='open')
+              + (SELECT COUNT(*) FROM custom_trades WHERE user_id=$1 AND status='open')
+              + (SELECT COUNT(*) FROM mass_trade_user_trades WHERE user_id=$1 AND status='open') AS open_count`, [userId]);
+      const closed = Number(c.rows[0].closed), open = Number(oc.rows[0].open_count);
+      counts = { winning: Number(c.rows[0].wins), losing: Number(c.rows[0].losses), closed, open, total: closed + open };
+    } catch (e) { /* tolerate missing tables */ }
+
     res.json({
       ok: true,
+      fees,
+      counts,
       daily: {
         wins: Number(dailyStats.rows[0].wins),
         losses: Number(dailyStats.rows[0].losses),

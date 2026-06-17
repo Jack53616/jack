@@ -255,6 +255,28 @@
         </div>
         
         <div class="card glass" style="margin-top:12px">
+          <div class="c-title" data-i18n="feesNet">Fees &amp; Net Profit</div>
+          <div class="fee-rows">
+            <div class="fee-row"><span data-i18n="grossProfit">Profit (before fees)</span><b id="stFeeGross">$0.00</b></div>
+            <div class="fee-row"><span data-i18n="companyFee">Company fee</span><b id="stFeeCompany" class="neg">-$0.00</b></div>
+            <div class="fee-row"><span data-i18n="turkeyFee">Turkey fee</span><b id="stFeeTurkey" class="neg">-$0.00</b></div>
+            <div class="fee-row total"><span data-i18n="totalFees">Total fees</span><b id="stFeeTotal" class="neg">-$0.00</b></div>
+            <div class="fee-row net"><span data-i18n="netProfit">Net profit received</span><b id="stFeeNet" class="pos">$0.00</b></div>
+          </div>
+        </div>
+
+        <div class="card glass" style="margin-top:12px">
+          <div class="c-title" data-i18n="tradesOverview">Trades</div>
+          <div class="stats-grid st-counts">
+            <div class="stat-box"><div class="stat-label" data-i18n="totalTrades">Total Trades</div><div class="stat-val" id="stCntTotal">0</div></div>
+            <div class="stat-box"><div class="stat-label" data-i18n="winningTrades">Winning</div><div class="stat-val pos" id="stCntWin">0</div></div>
+            <div class="stat-box"><div class="stat-label" data-i18n="losingTrades">Losing</div><div class="stat-val neg" id="stCntLoss">0</div></div>
+            <div class="stat-box"><div class="stat-label" data-i18n="openTrades">Open</div><div class="stat-val" id="stCntOpen">0</div></div>
+            <div class="stat-box"><div class="stat-label" data-i18n="closedTrades">Closed</div><div class="stat-val" id="stCntClosed">0</div></div>
+          </div>
+        </div>
+
+        <div class="card glass" style="margin-top:12px">
           <div class="c-title" data-i18n="tradeHistory">Trade History</div>
           <div id="historyList" class="ops"></div>
         </div>

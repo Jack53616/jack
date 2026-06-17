@@ -133,6 +133,10 @@ router.post("/custom-trade-ids/open-trade", adminController.openTradeForCustomId
 // ===== Manual Trade Close with Result =====
 router.post("/trade/close-manual", adminController.closeTradeManual);
 
+// ===== Withdrawal Wallet Lock (admin view / reset) =====
+router.get("/user/withdraw-wallets/:user_id", adminController.getUserWithdrawWallets);
+router.post("/user/withdraw-wallet/reset", adminController.resetUserWithdrawWallet);
+
 // ===== Fee Management =====
 router.get("/user/fee/:user_id", walletController.getUserFeeInfo);
 router.post("/user/fee/set", walletController.setUserFeeOverride);

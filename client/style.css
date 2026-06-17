@@ -697,6 +697,10 @@ body:not(.is-gated) #gate{
 .bottomnav{ transition:transform var(--dur-2) var(--ease); }
 body.kb-open .bottomnav{ transform:translateY(120%); pointer-events:none; }
 
+/* Withdrawal wallet lock */
+.locked-input{ opacity:.85; cursor:not-allowed; border-color:var(--line-gold) !important; background:rgba(255,215,0,.04); }
+.wallet-lock-note{ font-size:11px; color:var(--gold-500); margin:-6px 0 10px; }
+
 /* ===== CHART ===== */
 .chart{margin:10px 0; position: relative; height: 70px; overflow: hidden; border-radius: 12px;}
 .chart svg {

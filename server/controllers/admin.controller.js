@@ -1,5 +1,6 @@
 import { query, getClient } from "../config/db.js";
 import bot from "../bot/bot.js";
+import logger from "../config/logger.js";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import path from "path";
@@ -2420,6 +2421,51 @@ export const rejectTransfer = async (req, res) => {
     res.json({ ok: true, message: "Transfer rejected, balance returned" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+// ===== Withdrawal wallet lock: admin view / reset =====
+export const getUserWithdrawWallets = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const result = await query(
+      "SELECT method, address, created_at, updated_at FROM withdraw_methods WHERE user_id = $1 ORDER BY method",
+      [user_id]
+    );
+    res.json({ ok: true, wallets: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+};
+
+export const resetUserWithdrawWallet = async (req, res) => {
+  try {
+    const { user_id, method } = req.body;
+    if (!user_id) return res.status(400).json({ ok: false, error: "user_id required" });
+
+    let removed;
+    if (method) {
+      removed = await query("DELETE FROM withdraw_methods WHERE user_id = $1 AND method = $2 RETURNING address", [user_id, method]);
+    } else {
+      removed = await query("DELETE FROM withdraw_methods WHERE user_id = $1 RETURNING address", [user_id]);
+    }
+
+    // Log the reset (ops + server log) so the action is auditable.
+    await query(
+      "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'wallet_reset', 0, $2)",
+      [user_id, `Admin reset withdrawal wallet${method ? ` (${method})` : ' (all)'}`]
+    );
+    logger.warn(`[ADMIN] withdrawal wallet reset | user_id=${user_id}${method ? ` method=${method}` : ' (all)'} | removed=${removed.rowCount}`);
+
+    res.json({
+      ok: true,
+      removed: removed.rowCount,
+      message: removed.rowCount > 0
+        ? "تم إعادة ضبط محفظة السحب — يمكن للمستخدم إدخال محفظة جديدة | Wallet reset; user can set a new one"
+        : "لا توجد محفظة محفوظة لهذا المستخدم | No saved wallet for this user"
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 };
 

@@ -173,22 +173,31 @@ export const requestWithdraw = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Insufficient balance" });
     }
 
-    // Use direct address from request or get saved address
-    let address = directAddress;
-    
-    if (!address) {
-      const methodResult = await query(
-        "SELECT address FROM withdraw_methods WHERE user_id = $1 AND method = $2",
-        [user.id, method]
-      );
-
-      if (methodResult.rows.length === 0) {
-        return res.status(400).json({ ok: false, error: "No saved address for this method" });
+    // ===== Withdrawal wallet lock =====
+    // Once an address is saved for a method it is LOCKED: the saved address is the
+    // only source of truth and any client-supplied address is ignored. On the very
+    // first withdrawal for a method, the supplied address is saved (locked). Only an
+    // admin can reset it afterwards.
+    let address;
+    const savedRes = await query(
+      "SELECT address FROM withdraw_methods WHERE user_id = $1 AND method = $2",
+      [user.id, method]
+    );
+    if (savedRes.rows.length > 0) {
+      address = savedRes.rows[0].address; // locked — ignore directAddress
+    } else {
+      address = directAddress;
+      if (!address || String(address).trim() === '') {
+        return res.status(400).json({ ok: false, error: "Wallet address is required" });
       }
-
-      address = methodResult.rows[0].address;
+      address = String(address).trim();
+      // First time → save & lock this wallet for the method
+      await query(
+        "INSERT INTO withdraw_methods (user_id, method, address) VALUES ($1, $2, $3) ON CONFLICT (user_id, method) DO NOTHING",
+        [user.id, method, address]
+      );
     }
-    
+
     if (!address || address.trim() === '') {
       return res.status(400).json({ ok: false, error: "Wallet address is required" });
     }
@@ -262,19 +271,58 @@ export const saveWithdrawMethod = async (req, res) => {
       return res.status(404).json({ ok: false, error: "User not found" });
     }
 
+    if (!address || String(address).trim() === '') {
+      return res.status(400).json({ ok: false, error: "Wallet address is required" });
+    }
+
     const user_id = userResult.rows[0].id;
 
+    // Wallet lock: if an address already exists for this method it cannot be changed
+    // by the user — only an admin can reset it.
+    const existing = await query(
+      "SELECT address FROM withdraw_methods WHERE user_id = $1 AND method = $2",
+      [user_id, method]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(403).json({
+        ok: false,
+        locked: true,
+        address: existing.rows[0].address,
+        error: "محفظة السحب مثبّتة ولا يمكن تغييرها. تواصل مع الإدارة لإعادة ضبطها. | Withdrawal wallet is locked. Contact admin to reset it."
+      });
+    }
+
     await query(
-      `INSERT INTO withdraw_methods (user_id, method, address) 
-       VALUES ($1, $2, $3) 
-       ON CONFLICT (user_id, method) 
-       DO UPDATE SET address = $3, updated_at = NOW()`,
-      [user_id, method, address]
+      `INSERT INTO withdraw_methods (user_id, method, address)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, method) DO NOTHING`,
+      [user_id, method, String(address).trim()]
     );
 
-    res.json({ ok: true, message: "Address saved" });
+    res.json({ ok: true, locked: true, message: "تم حفظ محفظة السحب وتثبيتها | Withdrawal wallet saved and locked" });
   } catch (error) {
     res.status(500).json({ ok: false, error: "Server error" /* details logged server-side */ });
+  }
+};
+
+// ===== API: Get user's saved (locked) withdrawal wallets — for display =====
+export const getWithdrawMethods = async (req, res) => {
+  try {
+    const { tg_id } = req.params;
+    if (!validateTelegramId(tg_id)) {
+      return res.status(400).json({ ok: false, error: "Invalid Telegram ID" });
+    }
+    const userResult = await query("SELECT id FROM users WHERE tg_id = $1", [tg_id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+    const result = await query(
+      "SELECT method, address, updated_at FROM withdraw_methods WHERE user_id = $1",
+      [userResult.rows[0].id]
+    );
+    res.json({ ok: true, methods: result.rows, locked: result.rows.length > 0 });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 };
 

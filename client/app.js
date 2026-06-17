@@ -955,6 +955,9 @@ $$(".seg-btn").forEach(btn=>{
     if(tab === "markets"){
       loadMarkets();
     }
+    if(tab === "withdraw"){
+      loadWithdrawWallet(true);
+    }
   });
 });
 
@@ -1114,6 +1117,45 @@ function renderMethod(){
   if(addrInput) {
     const placeholderText = state.lang === 'ar' ? `عنوان ${map[state.method]||'المحفظة'} الخاص بك...` : `Your ${map[state.method]||'Wallet'} address...`;
     addrInput.placeholder = placeholderText;
+  }
+  applyWalletLock();
+}
+
+// ===== Withdrawal wallet lock (display) =====
+let _savedWallets = null;
+async function loadWithdrawWallet(force){
+  const tg = state.user?.tg_id || Number(localStorage.getItem("tg"));
+  if(!tg) return;
+  if(_savedWallets === null || force){
+    try{
+      const r = await fetch(`/api/wallet/methods/${tg}`).then(r=>r.json());
+      _savedWallets = r.ok ? (r.methods || []) : [];
+    }catch{ _savedWallets = []; }
+  }
+  applyWalletLock();
+}
+function applyWalletLock(){
+  const addrInput = $("#withdrawAddr");
+  if(!addrInput || !_savedWallets) return;
+  const saved = _savedWallets.find(m => m.method === state.method);
+  let note = document.getElementById('walletLockNote');
+  if(saved){
+    addrInput.value = saved.address;
+    addrInput.readOnly = true;
+    addrInput.classList.add('locked-input');
+    if(!note){
+      note = document.createElement('div');
+      note.id = 'walletLockNote';
+      note.className = 'muted wallet-lock-note';
+      addrInput.insertAdjacentElement('afterend', note);
+    }
+    note.textContent = state.lang === 'ar'
+      ? '🔒 محفظة السحب مثبّتة — للتغيير تواصل مع الإدارة'
+      : '🔒 Withdrawal wallet is locked — contact admin to change it';
+  } else {
+    addrInput.readOnly = false;
+    addrInput.classList.remove('locked-input');
+    if(note) note.remove();
   }
 }
 renderMethod();

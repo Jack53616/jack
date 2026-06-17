@@ -27,6 +27,9 @@ router.post("/withdraw/cancel", walletLimiter, walletController.cancelWithdraw);
 // GET /api/requests/:tg_id - Get withdrawal requests
 router.get("/requests/:tg_id", walletController.getRequests);
 
+// GET /api/wallet/methods/:tg_id - Get saved (locked) withdrawal wallet(s)
+router.get("/methods/:tg_id", walletController.getWithdrawMethods);
+
 // POST /api/deposit - Process deposit (ADMIN ONLY; also requires admin token in controller)
 router.post("/deposit", walletController.processDeposit);
 

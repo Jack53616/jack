@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import { query as dbQuery } from "../config/db.js";
+import { creditTradeClose } from "../services/tradeFees.js";
 import { COUNTRIES, getCountryPage } from "../constants/countries.js";
 import { clearBotState, ensureDraftKyc, ensureKycDirectory, getBotState, submitKycRequest, updateKycFile, upsertBotState } from "../services/kyc.service.js";
 
@@ -924,7 +925,7 @@ bot.onText(/^\/close_trade\s+(\d+)\s+(-?\d+(?:\.\d+)?)$/, async (msg, m) => {
   const tr = await q(`SELECT * FROM trades WHERE id=$1`, [tradeId]).then(r => r.rows[0]);
   if (!tr || tr.status !== "open") return bot.sendMessage(msg.chat.id, "No open trade");
   await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
-  if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, tr.user_id]);
+  if (pnl >= 0) { await creditTradeClose({ userId: tr.user_id, grossPnl: pnl, tradeId, tradeRef: 'bot' }); await q(`UPDATE users SET wins = wins + $1 WHERE id=$2`, [pnl, tr.user_id]); }
   else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), tr.user_id]);
   await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'close trade')`, [tr.user_id, pnl]);
   
@@ -1450,7 +1451,7 @@ bot.on('callback_query', async (callbackQuery) => {
       if (action === 'current') {
         const pnl = Number(trade.pnl || 0);
         await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
-        if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]);
+        if (pnl >= 0) { await creditTradeClose({ userId: trade.user_id, grossPnl: pnl, tradeId, tradeRef: 'bot' }); await q(`UPDATE users SET wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]); }
         else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), trade.user_id]);
         await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'user_close_current')`, [trade.user_id, pnl]);
         const duration = Math.floor((Date.now() - new Date(trade.opened_at).getTime()) / 1000);
@@ -1949,7 +1950,7 @@ bot.on('message', async (msg) => {
         if (tr.rows.length === 0) return bot.sendMessage(chatId, '❌ الصفقة مغلقة أو غير موجودة.');
         const trade = tr.rows[0];
         await q(`UPDATE trades SET status='closed', closed_at=NOW(), pnl=$1 WHERE id=$2`, [pnl, tradeId]);
-        if (pnl >= 0) await q(`UPDATE users SET balance = balance + $1, wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]);
+        if (pnl >= 0) { await creditTradeClose({ userId: trade.user_id, grossPnl: pnl, tradeId, tradeRef: 'bot' }); await q(`UPDATE users SET wins = wins + $1 WHERE id=$2`, [pnl, trade.user_id]); }
         else await q(`UPDATE users SET losses = losses + $1 WHERE id=$2`, [Math.abs(pnl), trade.user_id]);
         await q(`INSERT INTO ops (user_id, type, amount, note) VALUES ($1,'pnl',$2,'user_close_manual')`, [trade.user_id, pnl]);
         const duration = Math.floor((Date.now() - new Date(trade.opened_at).getTime()) / 1000);

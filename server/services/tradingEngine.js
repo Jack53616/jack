@@ -1,6 +1,7 @@
 import { query } from "../config/db.js";
 import bot from "../bot/bot.js";
 import { processAgentCommission } from "../controllers/agent.controller.js";
+import { creditTradeClose } from "./tradeFees.js";
 
 /* =========================
    PRICE SOURCES & CACHES
@@ -430,8 +431,8 @@ async function closeCustomTrade({ trade, currentPrice, pnl, elapsed }) {
     // Clear price state
     clearPriceState(trade.id, 'custom');
 
-    // Update user balance
-    await query("UPDATE users SET balance = balance + $1 WHERE id=$2", [pnl, trade.user_id]);
+    // Update user balance — credit NET after fees (fees applied only to profit).
+    await creditTradeClose({ userId: trade.user_id, grossPnl: pnl, tradeId: trade.id, tradeRef: 'custom' });
 
     if (pnl >= 0) {
       await query("UPDATE users SET wins = COALESCE(wins,0) + $1 WHERE id=$2", [pnl, trade.user_id]);
@@ -496,10 +497,8 @@ async function closeRegularTrade({ trade, currentPrice, pnl, closeReason, elapse
     // Clear price state
     clearPriceState(trade.id, 'regular');
 
-    await query(
-      "UPDATE users SET balance = balance + $1 WHERE id=$2",
-      [pnl, trade.user_id]
-    );
+    // Credit NET after fees (fees applied only to profit).
+    await creditTradeClose({ userId: trade.user_id, grossPnl: pnl, tradeId: trade.id, tradeRef: 'regular' });
 
     if (pnl >= 0) {
       await query("UPDATE users SET wins = COALESCE(wins,0) + $1 WHERE id=$2", [pnl, trade.user_id]);
@@ -565,8 +564,8 @@ async function closeMassTradeUserTrade({ trade, currentPrice, pnl, elapsed }) {
     // Clear price state
     clearPriceState(trade.id, 'mass');
 
-    // Update user balance
-    await query("UPDATE users SET balance = balance + $1 WHERE id=$2", [pnl, trade.user_id]);
+    // Update user balance — credit NET after fees (fees applied only to profit).
+    await creditTradeClose({ userId: trade.user_id, grossPnl: pnl, tradeId: trade.id, tradeRef: 'mass' });
 
     if (pnl >= 0) {
       await query("UPDATE users SET wins = COALESCE(wins,0) + $1 WHERE id=$2", [pnl, trade.user_id]);

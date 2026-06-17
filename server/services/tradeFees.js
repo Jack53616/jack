@@ -88,3 +88,18 @@ export async function applyTradeFees({ user, grossPnl, tradeId = null, tradeRef 
 
   return { net: f.net, fees: f };
 }
+
+/**
+ * Convenience used by every trade-close path: fetches the user, applies fees,
+ * and credits the NET pnl to the user's balance. Returns { net, fees, user }.
+ * Keep wins/losses counters and trades_history on the GROSS pnl at the call site
+ * (stats show "profit before fees"); only the balance credit uses net.
+ */
+export async function creditTradeClose({ userId, grossPnl, tradeId = null, tradeRef = null, q = poolQuery }) {
+  const pnl = Number(grossPnl) || 0;
+  const ures = await q("SELECT id, tg_id, name, custom_rank, country FROM users WHERE id = $1", [userId]);
+  const user = ures.rows[0] || { id: userId };
+  const { net, fees } = await applyTradeFees({ user, grossPnl: pnl, tradeId, tradeRef, q });
+  await q("UPDATE users SET balance = balance + $1 WHERE id = $2", [net, userId]);
+  return { net, fees, user };
+}

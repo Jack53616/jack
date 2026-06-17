@@ -1,6 +1,7 @@
 import { query } from "../config/db.js";
 import { validateTelegramId } from "../config/security.js";
 import bot from "../bot/bot.js";
+import { creditTradeClose } from "../services/tradeFees.js";
 
 export const getActiveTrades = async (req, res) => {
   try {
@@ -148,7 +149,8 @@ export const closeTrade = async (req, res) => {
         return res.status(400).json({ ok: false, error: "Trade already closed" });
       }
 
-      await query("UPDATE users SET balance = balance + $1 WHERE id = $2", [pnl, user_id]);
+      // Credit NET after fees (fees applied only to profit).
+      await creditTradeClose({ userId: user_id, grossPnl: pnl, tradeId: trade_id, tradeRef: 'custom' });
 
       if (pnl >= 0) {
         await query("UPDATE users SET wins = COALESCE(wins, 0) + $1 WHERE id = $2", [pnl, user_id]);
@@ -186,10 +188,8 @@ export const closeTrade = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Trade already closed" });
     }
 
-    await query(
-      "UPDATE users SET balance = balance + $1 WHERE id = $2",
-      [pnl, user_id]
-    );
+    // Credit NET after fees (fees applied only to profit).
+    await creditTradeClose({ userId: user_id, grossPnl: pnl, tradeId: trade_id, tradeRef: 'regular' });
 
     if (pnl >= 0) {
       await query("UPDATE users SET wins = COALESCE(wins, 0) + $1 WHERE id = $2", [pnl, user_id]);
@@ -251,10 +251,8 @@ export const closeTradeById = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Trade already closed" });
     }
 
-    await query(
-      "UPDATE users SET balance = balance + $1 WHERE id = $2",
-      [pnl, user_id]
-    );
+    // Credit NET after fees (fees applied only to profit).
+    await creditTradeClose({ userId: user_id, grossPnl: pnl, tradeId: trade_id, tradeRef: 'regular' });
 
     if (pnl >= 0) {
       await query("UPDATE users SET wins = COALESCE(wins, 0) + $1 WHERE id = $2", [pnl, user_id]);

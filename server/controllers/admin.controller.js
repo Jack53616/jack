@@ -1,4 +1,4 @@
-import { query } from "../config/db.js";
+import { query, getClient } from "../config/db.js";
 import bot from "../bot/bot.js";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
@@ -2330,22 +2330,30 @@ export const approveTransfer = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Transfer already processed" });
     }
 
-    await query("UPDATE user_transfers SET status = 'approved', reviewed_at = NOW(), updated_at = NOW() WHERE id = $1", [transfer_id]);
-
-    await query(
-      "UPDATE users SET frozen_balance = GREATEST(0, frozen_balance - $1) WHERE id = $2",
-      [transfer.amount, transfer.from_user_id]
-    );
-
-    await query(
-      "UPDATE users SET balance = balance + $1 WHERE id = $2",
-      [transfer.amount, transfer.to_user_id]
-    );
-
-    await query(
-      "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_in', $2, $3)",
-      [transfer.to_user_id, transfer.amount, 'تحويل مستلم']
-    );
+    // Atomic: release sender's frozen funds + credit receiver + log, in one transaction.
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE user_transfers SET status = 'approved', reviewed_at = NOW(), updated_at = NOW() WHERE id = $1", [transfer_id]);
+      await client.query(
+        "UPDATE users SET frozen_balance = GREATEST(0, COALESCE(frozen_balance, 0) - $1) WHERE id = $2",
+        [transfer.amount, transfer.from_user_id]
+      );
+      await client.query(
+        "UPDATE users SET balance = balance + $1 WHERE id = $2",
+        [transfer.amount, transfer.to_user_id]
+      );
+      await client.query(
+        "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_in', $2, $3)",
+        [transfer.to_user_id, transfer.amount, 'تحويل مستلم']
+      );
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     const fromUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.from_user_id]);
     const toUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.to_user_id]);
@@ -2381,12 +2389,26 @@ export const rejectTransfer = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Transfer already processed" });
     }
 
-    await query("UPDATE user_transfers SET status = 'rejected', admin_note = $1, reviewed_at = NOW(), updated_at = NOW() WHERE id = $2", [reason || 'Rejected', transfer_id]);
-
-    await query(
-      "UPDATE users SET balance = balance + $1, frozen_balance = GREATEST(0, frozen_balance - $1) WHERE id = $2",
-      [transfer.amount, transfer.from_user_id]
-    );
+    // Atomic: mark rejected + return funds to sender (unfreeze) in one transaction.
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE user_transfers SET status = 'rejected', admin_note = $1, reviewed_at = NOW(), updated_at = NOW() WHERE id = $2", [reason || 'Rejected', transfer_id]);
+      await client.query(
+        "UPDATE users SET balance = balance + $1, frozen_balance = GREATEST(0, COALESCE(frozen_balance, 0) - $1) WHERE id = $2",
+        [transfer.amount, transfer.from_user_id]
+      );
+      await client.query(
+        "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_refund', $2, $3)",
+        [transfer.from_user_id, transfer.amount, 'إرجاع تحويل مرفوض']
+      );
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     const fromUser = await query("SELECT tg_id, name FROM users WHERE id = $1", [transfer.from_user_id]);
     if (fromUser.rows[0]?.tg_id) {

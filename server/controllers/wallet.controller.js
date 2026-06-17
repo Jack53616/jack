@@ -1,4 +1,4 @@
-import { query } from "../config/db.js";
+import { query, getClient } from "../config/db.js";
 import { validateTelegramId, validateAmount } from "../config/security.js";
 import { processReferralBonus } from "./auth.controller.js";
 import { 
@@ -568,21 +568,35 @@ export const requestTransfer = async (req, res) => {
       return res.status(400).json({ ok: false, error: "لديك طلبات تحويل معلقة (حد أقصى 3) | Max 3 pending transfers" });
     }
 
-    await query(
-      "UPDATE users SET balance = balance - $1, frozen_balance = frozen_balance + $1 WHERE id = $2",
-      [amount, sender.id]
-    );
-
-    await query(
-      `INSERT INTO user_transfers (from_user_id, to_user_id, amount, note, status)
-       VALUES ($1, $2, $3, $4, 'pending')`,
-      [sender.id, receiver.id, amount, note || null]
-    );
-
-    await query(
-      "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_out', $2, $3)",
-      [sender.id, -amount, `طلب تحويل إلى ${receiver.name || receiver.tg_id}`]
-    );
+    // Atomic money move: deduct + freeze + record in a single transaction.
+    // The conditional UPDATE (balance >= amount) prevents races / negative balance.
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+      const deduct = await client.query(
+        "UPDATE users SET balance = balance - $1, frozen_balance = COALESCE(frozen_balance, 0) + $1 WHERE id = $2 AND balance >= $1 RETURNING id",
+        [amount, sender.id]
+      );
+      if (deduct.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, error: "الرصيد غير كافي | Insufficient balance" });
+      }
+      await client.query(
+        `INSERT INTO user_transfers (from_user_id, to_user_id, amount, note, status)
+         VALUES ($1, $2, $3, $4, 'pending')`,
+        [sender.id, receiver.id, amount, note || null]
+      );
+      await client.query(
+        "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'transfer_out', $2, $3)",
+        [sender.id, -amount, `طلب تحويل إلى ${receiver.name || receiver.tg_id}`]
+      );
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     res.json({
       ok: true,

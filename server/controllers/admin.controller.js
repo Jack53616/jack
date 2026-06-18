@@ -34,6 +34,53 @@ export const expireAllSubscriptions = async (req, res) => {
   }
 };
 
+// ===== Reset a user's identity (KYC) verification (admin) =====
+// NOTE: the platform has no separate "phone" verification — the only
+// verification is identity/KYC. This clears the user's verified state and
+// invalidates their approved/pending KYC records so they must re-verify
+// from scratch (/verify). It never touches balances, trades or the account.
+export const resetKycVerification = async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ ok: false, error: "Missing user_id" });
+
+    const u = await query("SELECT id, tg_id, name FROM users WHERE id = $1", [user_id]);
+    if (u.rows.length === 0) return res.status(404).json({ ok: false, error: "User not found" });
+    const user = u.rows[0];
+
+    await query("UPDATE users SET kyc_verified = FALSE, updated_at = NOW() WHERE id = $1", [user.id]);
+    const upd = await query(
+      `UPDATE kyc_verifications
+         SET status = 'reset', rejection_reason = 'Reset by admin', reviewed_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1 AND status IN ('approved', 'pending')`,
+      [user.id]
+    );
+
+    try {
+      await query(
+        "INSERT INTO ops (user_id, type, amount, note) VALUES ($1, 'info', 0, 'KYC verification reset by admin')",
+        [user.id]
+      );
+    } catch (e) { /* best-effort audit */ }
+
+    logger.warn(`[ADMIN] kyc-reset | user_id:${user.id} tg:${user.tg_id} | IP:${req.ip} | records:${upd.rowCount}`);
+
+    // Notify the user (best-effort)
+    try {
+      await bot.sendMessage(
+        Number(user.tg_id),
+        "🔔 *تم إلغاء توثيق هويتك من قبل الإدارة*\nيرجى إعادة التوثيق من جديد عبر /verify.\n\n🔔 *Your identity verification was reset by admin.*\nPlease verify again via /verify.",
+        { parse_mode: "Markdown" }
+      );
+    } catch (e) { /* user may have blocked the bot */ }
+
+    res.json({ ok: true, message: "Verification reset", records: upd.rowCount });
+  } catch (error) {
+    logger.error(`kyc-reset error: ${error.message}`);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+};
+
 // Dashboard with comprehensive stats (daily resets automatically via SQL date filters)
 export const getDashboard = async (req, res) => {
   try {

@@ -391,6 +391,14 @@ $('#clearHistoryBtn')?.addEventListener('click', async () => {
   else toast('❌ ' + (r.error || 'خطأ'));
 });
 
+$('#resetKycBtn')?.addEventListener('click', async () => {
+  if (!state.currentUser) return;
+  if (!confirm('هل أنت متأكد من إلغاء توثيق هذا المستخدم؟ سيُطالَب بإعادة التوثيق من جديد.')) return;
+  const r = await api('/api/admin/user/kyc/reset', 'POST', { user_id: state.currentUser.id });
+  if (r.ok) { toast('✅ تم إلغاء التوثيق — على المستخدم إعادة التوثيق'); viewUser(state.currentUser.id); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+});
+
 $('#clearWithdrawalsBtn')?.addEventListener('click', async () => {
   if (!state.currentUser) return;
   if (!confirm('هل أنت متأكد من تصفير جميع طلبات السحب لهذا المستخدم؟')) return;

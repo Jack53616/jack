@@ -12,6 +12,28 @@ import { signKycImageToken } from "../utils/kycImageToken.js";
 // Root directory where KYC images are stored on disk (used for path-traversal checks).
 const KYC_STORAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../storage/kyc");
 
+// ===== Expire ALL users' subscriptions (admin) =====
+// Only expires subscriptions — never touches balances or deletes users.
+export const expireAllSubscriptions = async (req, res) => {
+  try {
+    const result = await query(
+      "UPDATE users SET sub_expires = NOW() - INTERVAL '1 second', updated_at = NOW() WHERE sub_expires IS NULL OR sub_expires > NOW()"
+    );
+    const count = result.rowCount || 0;
+    logger.warn(`[ADMIN] expire-all-subscriptions | IP: ${req.ip} | affected: ${count}`);
+    try {
+      await query(
+        "INSERT INTO settings (key, value) VALUES ('last_expire_all_subscriptions', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()",
+        [JSON.stringify({ at: new Date().toISOString(), count, ip: req.ip })]
+      );
+    } catch (e) { /* audit best-effort */ }
+    res.json({ ok: true, count });
+  } catch (error) {
+    logger.error(`expire-all-subscriptions error: ${error.message}`);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+};
+
 // Dashboard with comprehensive stats (daily resets automatically via SQL date filters)
 export const getDashboard = async (req, res) => {
   try {

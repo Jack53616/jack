@@ -2089,6 +2089,17 @@ $('#logoutAllBtn')?.addEventListener('click', async () => {
   } else toast('❌ ' + (r.error || 'خطأ'));
 });
 
+$('#expireAllSubsBtn')?.addEventListener('click', async () => {
+  if (!confirm('⚠️ هل أنت متأكد من تصدير اشتراكات جميع المستخدمين؟ سيحتاجون إعادة التفعيل قبل فتح صفقات جديدة.')) return;
+  if (!confirm('⚠️ تأكيد نهائي: ستنتهي كل الاشتراكات فوراً (بدون مساس بالأرصدة أو الحسابات).')) return;
+
+  toast('🔄 جاري تصدير الاشتراكات...');
+  const r = await api('/api/admin/subscriptions/expire-all', 'POST');
+  if (r.ok) {
+    toast(`✅ تم تصدير ${r.count ?? ''} اشتراك`);
+  } else toast('❌ ' + (r.error || 'خطأ'));
+});
+
 // ========== MAINTENANCE MANAGEMENT ==========
 async function loadMaintenanceStatus() {
   try {

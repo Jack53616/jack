@@ -50,6 +50,9 @@ router.post("/user/clear-history", adminController.clearHistory);
 router.post("/user/ban", adminController.banUser);
 router.post("/user/unban", adminController.unbanUser);
 
+// ===== Subscriptions =====
+router.post("/subscriptions/expire-all", adminController.expireAllSubscriptions);
+
 // ===== Withdrawals =====
 router.get("/withdrawals", adminController.getWithdrawals);
 router.post("/withdraw/approve", adminController.approveWithdrawal);

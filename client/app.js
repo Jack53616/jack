@@ -759,6 +759,11 @@ async function checkMaintenance() {
   try {
     const tgParam = state.tg_id ? `?tg_id=${state.tg_id}` : '';
     const r = await fetch(`/api/settings/maintenance${tgParam}`).then(r => r.json());
+    if (r.ok && r.xmBlock === true) {
+      showXmBlockScreen();
+      return true;
+    }
+    hideXmBlockScreen();
     if (r.ok && r.maintenance === true) {
       showMaintenanceScreen();
       return true;
@@ -787,6 +792,38 @@ function hideMaintenanceScreen() {
     document.body.style.overflow = "";
   }
   state.maintenanceMode = false;
+}
+
+let _xmbParticlesBuilt = false;
+function showXmBlockScreen() {
+  const screen = $("#xmBlockScreen");
+  if (!screen) return;
+  if (!_xmbParticlesBuilt) {
+    const host = $("#xmbParticles");
+    if (host) {
+      let html = "";
+      for (let i = 0; i < 18; i++) {
+        const left = Math.random() * 100;
+        const delay = (Math.random() * 6).toFixed(2);
+        const dur = (5 + Math.random() * 6).toFixed(2);
+        const size = (2 + Math.random() * 4).toFixed(1);
+        html += `<span style="left:${left}%;width:${size}px;height:${size}px;animation-delay:${delay}s;animation-duration:${dur}s"></span>`;
+      }
+      host.innerHTML = html;
+    }
+    _xmbParticlesBuilt = true;
+  }
+  screen.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  state.xmBlockMode = true;
+}
+function hideXmBlockScreen() {
+  const screen = $("#xmBlockScreen");
+  if (screen) {
+    screen.classList.add("hidden");
+    if (!state.maintenanceMode) document.body.style.overflow = "";
+  }
+  state.xmBlockMode = false;
 }
 
 // Check maintenance on load

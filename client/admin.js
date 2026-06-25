@@ -2164,6 +2164,30 @@ $('#maintOffBtn')?.addEventListener('click', async () => {
   else toast('❌ ' + (r.error || 'خطأ'));
 });
 
+async function loadXmBlockStatus() {
+  try {
+    const r = await api('/api/admin/xm-block/status', 'GET');
+    const el = $('#xmBlockStatus');
+    if (el && r.ok) {
+      el.textContent = r.enabled ? '🔴 مفعّلة' : '🟢 متوقفة';
+      el.style.color = r.enabled ? '#ff3b63' : '#00d68f';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+$('#xmBlockOnBtn')?.addEventListener('click', async () => {
+  if (!confirm('هل تريد تفعيل شاشة حظر XM؟ سيرى جميع المستخدمين شاشة التعليق المؤقت.')) return;
+  const r = await api('/api/admin/xm-block/enable', 'POST');
+  if (r.ok) { toast('🔴 تم تفعيل شاشة XM'); loadXmBlockStatus(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+});
+
+$('#xmBlockOffBtn')?.addEventListener('click', async () => {
+  const r = await api('/api/admin/xm-block/disable', 'POST');
+  if (r.ok) { toast('🟢 تم إيقاف شاشة XM'); loadXmBlockStatus(); }
+  else toast('❌ ' + (r.error || 'خطأ'));
+});
+
 $('#wlAddBtn')?.addEventListener('click', async () => {
   const tgId = $('#wlAddId')?.value?.trim();
   if (!tgId) return toast('❌ أدخل Telegram ID');
@@ -2183,7 +2207,7 @@ window.removeFromWhitelist = async (tgId) => {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.tab === 'rewards') loadRewardStatus();
-    if (btn.dataset.tab === 'maint') loadMaintenanceStatus();
+    if (btn.dataset.tab === 'maint') { loadMaintenanceStatus(); loadXmBlockStatus(); }
     if (btn.dataset.tab === 'official-agents') loadOfficialAgents();
     if (btn.dataset.tab === 'reports') loadOfficialAgentReports();
     if (btn.dataset.tab === 'kyc') loadKycRequests();

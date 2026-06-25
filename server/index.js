@@ -119,26 +119,28 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, status: "running", timestamp: new Date().toISOString() });
 });
 
-// Maintenance status check (supports whitelist bypass)
+// Maintenance / XM-block status check (supports whitelist bypass)
 app.get("/api/settings/maintenance", async (req, res) => {
   try {
-    const result = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_mode'");
-    const maintenance = result.rows.length > 0 && result.rows[0].value === 'true';
-    
-    // If maintenance is on, check if user is whitelisted
-    if (maintenance && req.query.tg_id) {
-      const wlResult = await pool.query("SELECT value FROM settings WHERE key = 'maintenance_whitelist'");
-      if (wlResult.rows.length > 0) {
-        const whitelist = (wlResult.rows[0].value || '').split(',').map(s => s.trim());
-        if (whitelist.includes(String(req.query.tg_id))) {
-          return res.json({ ok: true, maintenance: false, whitelisted: true });
-        }
+    const result = await pool.query(
+      "SELECT key, value FROM settings WHERE key IN ('maintenance_mode','xm_block_mode','maintenance_whitelist')"
+    );
+    const map = {};
+    result.rows.forEach((r) => { map[r.key] = r.value; });
+    const maintenance = map['maintenance_mode'] === 'true';
+    const xmBlock = map['xm_block_mode'] === 'true';
+
+    // Whitelisted users bypass both screens (useful for admin testing).
+    if ((maintenance || xmBlock) && req.query.tg_id) {
+      const whitelist = (map['maintenance_whitelist'] || '').split(',').map((s) => s.trim());
+      if (whitelist.includes(String(req.query.tg_id))) {
+        return res.json({ ok: true, maintenance: false, xmBlock: false, whitelisted: true });
       }
     }
-    
-    res.json({ ok: true, maintenance });
+
+    res.json({ ok: true, maintenance, xmBlock });
   } catch (error) {
-    res.json({ ok: true, maintenance: false });
+    res.json({ ok: true, maintenance: false, xmBlock: false });
   }
 });
 

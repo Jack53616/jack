@@ -305,6 +305,40 @@ router.post("/session/logout-all", async (req, res) => {
   }
 });
 
+// ===== XM Block screen (temporary suspension) =====
+router.post("/xm-block/enable", async (req, res) => {
+  try {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('xm_block_mode', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()"
+    );
+    logger.warn(`[ADMIN] xm-block enabled | IP: ${req.ip}`);
+    res.json({ ok: true });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+router.post("/xm-block/disable", async (req, res) => {
+  try {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('xm_block_mode', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()"
+    );
+    logger.warn(`[ADMIN] xm-block disabled | IP: ${req.ip}`);
+    res.json({ ok: true });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+router.get("/xm-block/status", async (req, res) => {
+  try {
+    const r = await pool.query("SELECT value FROM settings WHERE key = 'xm_block_mode'");
+    res.json({ ok: true, enabled: r.rows.length > 0 && r.rows[0].value === 'true' });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
 // ===== Maintenance Whitelist Management =====
 router.post("/maintenance/enable", async (req, res) => {
   try {

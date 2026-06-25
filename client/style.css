@@ -1742,6 +1742,59 @@ input, textarea, select, button {
 }
 
 /* ===== WITHDRAW FORM ===== */
+/* ===== XM BLOCK SCREEN (temporary suspension) ===== */
+.xmblock-screen{
+  position:fixed; inset:0; z-index:100000;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  overflow:hidden; text-align:center;
+  background:radial-gradient(ellipse 100% 70% at 50% 0%, #1a0608 0%, #0a0406 55%, #050203 100%);
+}
+.xmb-bg{
+  position:absolute; inset:-40%;
+  background:conic-gradient(from 0deg, transparent 0deg, rgba(225,29,42,.10) 90deg, transparent 180deg, rgba(225,29,42,.10) 270deg, transparent 360deg);
+  animation:xmbSpin 18s linear infinite; pointer-events:none;
+}
+@keyframes xmbSpin{ to{ transform:rotate(360deg); } }
+.xmb-particles{ position:absolute; inset:0; pointer-events:none; }
+.xmb-particles span{
+  position:absolute; bottom:-10px; border-radius:50%;
+  background:rgba(255,80,90,.7); box-shadow:0 0 8px rgba(255,60,70,.8);
+  animation:xmbRise linear infinite;
+}
+@keyframes xmbRise{ 0%{ transform:translateY(0); opacity:0 } 10%{opacity:1} 90%{opacity:.6} 100%{ transform:translateY(-100vh); opacity:0 } }
+
+.xmb-content{ position:relative; z-index:2; max-width:440px; width:100%; animation:xmbIn .7s var(--ease-out, ease) both; }
+@keyframes xmbIn{ from{ opacity:0; transform:translateY(18px) scale(.96) } to{ opacity:1; transform:none } }
+
+.xmb-logo-wrap{ position:relative; width:160px; height:160px; margin:0 auto 26px; display:flex; align-items:center; justify-content:center; }
+.xmb-logo{ width:96px; height:auto; position:relative; z-index:3; filter:drop-shadow(0 0 18px rgba(225,29,42,.6)); animation:xmbFloat 3.4s ease-in-out infinite; }
+@keyframes xmbFloat{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-6px) } }
+.xmb-glow{ position:absolute; width:150px; height:150px; border-radius:50%; background:radial-gradient(circle, rgba(225,29,42,.45) 0%, transparent 70%); filter:blur(14px); animation:xmbPulse 2.2s ease-in-out infinite; }
+@keyframes xmbPulse{ 0%,100%{ transform:scale(.85); opacity:.6 } 50%{ transform:scale(1.15); opacity:1 } }
+.xmb-ring{ position:absolute; inset:0; border-radius:50%; border:2px solid transparent; border-top-color:#e11d2a; border-right-color:rgba(225,29,42,.4); animation:xmbSpin 3.5s linear infinite; }
+.xmb-ring2{ inset:16px; border-top-color:rgba(255,255,255,.25); border-left-color:#e11d2a; animation:xmbSpin 5s linear infinite reverse; }
+.xmb-scan{ position:absolute; left:14%; right:14%; height:2px; top:50%; background:linear-gradient(90deg, transparent, #ff4d5a, transparent); box-shadow:0 0 12px #ff4d5a; animation:xmbScan 2.6s ease-in-out infinite; }
+@keyframes xmbScan{ 0%{ transform:translateY(-46px); opacity:0 } 15%{ opacity:1 } 50%{ transform:translateY(46px); opacity:1 } 85%{ opacity:1 } 100%{ transform:translateY(-46px); opacity:0 } }
+
+.xmb-badge{
+  display:inline-block; font-size:11px; font-weight:800; letter-spacing:2px;
+  color:#ffd0d4; background:rgba(225,29,42,.18); border:1px solid rgba(225,29,42,.5);
+  padding:6px 14px; border-radius:999px; margin-bottom:16px;
+  animation:xmbBlink 1.6s ease-in-out infinite;
+}
+@keyframes xmbBlink{ 0%,100%{ box-shadow:0 0 0 0 rgba(225,29,42,.5) } 50%{ box-shadow:0 0 22px 2px rgba(225,29,42,.55) } }
+.xmb-title{ font-size:24px; font-weight:900; color:#fff; margin:0 0 8px; letter-spacing:.3px; text-shadow:0 2px 18px rgba(225,29,42,.5); }
+.xmb-sub{ font-size:15px; color:#e7b6ba; margin:0 0 14px; line-height:1.6; }
+.xmb-sub b, .xmb-sub-en b{ color:#ff5560; }
+.xmb-divider{ width:64px; height:3px; margin:14px auto; border-radius:3px; background:linear-gradient(90deg, transparent, #e11d2a, transparent); }
+.xmb-title-en{ font-size:15px; font-weight:800; color:#fff; margin:0 0 4px; letter-spacing:.5px; }
+.xmb-sub-en{ font-size:12.5px; color:#b89a9c; margin:0 0 18px; line-height:1.5; }
+.xmb-bars{ display:flex; gap:5px; justify-content:center; height:28px; align-items:flex-end; margin-bottom:18px; }
+.xmb-bars span{ width:5px; background:linear-gradient(180deg,#ff5560,#e11d2a); border-radius:3px; animation:xmbEq 1s ease-in-out infinite; }
+.xmb-bars span:nth-child(1){ animation-delay:0s } .xmb-bars span:nth-child(2){ animation-delay:.15s } .xmb-bars span:nth-child(3){ animation-delay:.3s } .xmb-bars span:nth-child(4){ animation-delay:.45s } .xmb-bars span:nth-child(5){ animation-delay:.6s }
+@keyframes xmbEq{ 0%,100%{ height:8px; opacity:.6 } 50%{ height:26px; opacity:1 } }
+.xmb-foot{ font-size:11px; color:#7a6063; letter-spacing:.3px; }
+
 /* ===== BAN SCREEN ===== */
 .ban-screen {
   position: fixed;
